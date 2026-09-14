@@ -1,0 +1,21 @@
+Total spacecraft power [W]: 700
+Transmitter power (spacecraft) [W]: 200
+Transmitter power (ground station) [W]: 1000
+Loss factor transmitter [-]: 0.8
+Loss factor receiver [-]: 0.7
+Downlink frequency [GHz]: 8.5
+Turn around ratio (uplink/downlink frequency) [-]: 749/880
+Antenna diameter spacecraft (parabolic antenna) [m]: 1.6
+Antenna diameter ground station (parabolic antenna) [m]: 35
+Orbit altitude [km]: 1000
+Elongation angle (angle between spacecraft-Sun line and Earth-Sun line) [deg]: 10
+Pointing offset angle (spacecraft) [deg]: 0.1
+Required uplink data rate [bit/s]: 1e5
+Payload swath width angle [deg]: 10
+Payload pixel size [arcmin]: 0.3
+Payload bits per pixel [-]: 8
+Payload duty cycle [-]: 25%
+Payload downlink time [-]: 12 hr/day
+Modulation/coding type [-]: uncoded
+Required BER [-]: 1e-6
+Planet: Venus
