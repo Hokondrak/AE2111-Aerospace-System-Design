@@ -24,11 +24,5 @@ MERCURY_APHELION = 0.4667 * AU    # m
 ORBIT_ALTITUDE = 750e3      # m, nominal circular orbit
 SCIENCE_DURATION = 1 * YEAR # s
 
-# Fill these from your mission analysis / subsystem power budget.
-TRANSFER_DURATION = None   # s
-MAX_ECLIPSE_DURATION = None # s
-SUNLIGHT_DURATION = None   # s, available recharge time per orbit
 
-POWER_SUNLIGHT = None       # W, average load during sunlight
-POWER_ECLIPSE = None        # W, average load during eclipse
-POWER_PEAK = None           # W, maximum simultaneous load
+# Fill these from your mission analysis / subsystem power budget.
