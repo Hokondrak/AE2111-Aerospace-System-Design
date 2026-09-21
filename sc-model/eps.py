@@ -91,6 +91,17 @@ BATTERY_CYCLE_EXPONENT = 1.5  # k in N = N_rated * (DoD/DoD_rated)^-k; 1.5-2, lo
 ## WE NEED TO CALCULATE: MASS SIZE BATTERIES MASS SIZE SOLAR PANELS mass size RTG
 RTG_DECAY_HALF_LIFE = 87.7 * C.YEAR  # s, Pu-238
 
+# ---------- Design check inputs ----------
+PEAK_DURATION = MAX_ECLIPSE_DURATION  # s, conservative: peak load lasts a full eclipse
+
+# Transfer phases, used for the hibernation check: (name, duration [yr], max Sun distance [AU]).
+# PLACEHOLDERS: replace with the real trajectory. Durations must sum to TRANSFER_DURATION.
+TRANSFER_PHASES = [
+    ("Earth departure/flyby", 1.2, 1.02),
+    ("Venus flybys",          1.5, 0.90),
+    ("Mercury flybys",        4.0, 0.70),
+]
+
 # ---------- Shared: solar array performance ----------
 # Size at Mercury aphelion: lowest solar flux -> worst case for array area
 SOLAR_FLUX = C.SOLAR_FLUX_1AU * (C.AU / C.MERCURY_APHELION)**2  # [W/m²]
@@ -192,6 +203,7 @@ print(f"  Total                  {EPS_COST / 1e6:10.2f} M EUR")
 print("=" * 45)
 
 CASE1_MASS, CASE1_MASS_MARGIN, CASE1_COST = EPS_MASS, EPS_MASS_MARGIN, EPS_COST
+CASE1_ARRAY_AREA, CASE1_BATTERY_CAPACITY = SOLAR_ARRAY_SIZE, BATTERY_CAPACITY
 
 ##CASE 2 (SOLAR + RTG):
 # RTG powers the spacecraft on its own during hibernation (cruise), so the solar
@@ -291,4 +303,79 @@ print(f"  {'':22} {'Case 1':>9} {'Case 2':>9}")
 print(f"  {'Mass [kg]':22} {CASE1_MASS:9.1f} {EPS_MASS:9.1f}")
 print(f"  {'Mass + margin [kg]':22} {CASE1_MASS_MARGIN:9.1f} {EPS_MASS_MARGIN:9.1f}")
 print(f"  {'Cost [M EUR]':22} {CASE1_COST / 1e6:9.2f} {EPS_COST / 1e6:9.2f}")
+print("=" * 45)
+
+
+# =====================================================================
+# DESIGN CHECKS: peak power (science) and hibernation (transfer)
+# =====================================================================
+MISSION_DURATION = TRANSFER_DURATION + C.SCIENCE_DURATION  # s
+PEAK_LOAD = POWER_PEAK * (1 + POWER_MARGIN)  # [W]
+BATTERY_OUT_EFF = BATTERY_DISCHARGE_EFF * BATTERY_TO_BUS_EFF * BUS_TO_LOAD_EFF
+ARRAY_OUT_EFF = ARRAY_TO_BUS_EFF * BUS_TO_LOAD_EFF
+
+
+def rtg_power(t):
+    """RTG output [W] at time t [s] after launch, Pu-238 decay only."""
+    return RTG_POWER_BOL * 0.5 ** (t / RTG_DECAY_HALF_LIFE)
+
+
+def array_density(r, t):
+    """Array output [W/m²] at Sun distance r [m] and time t [s] after launch.
+    Degradation goes linearly from 1 at launch to ARRAY_EOL_FACTOR at end of mission."""
+    flux = C.SOLAR_FLUX_1AU * (C.AU / r) ** 2
+    degradation = 1 - (1 - ARRAY_EOL_FACTOR) * t / MISSION_DURATION
+    return (flux * CELL_EFFICIENCY_REF * TEMP_FACTOR * ARRAY_PACKING_FACTOR
+            * np.cos(SUN_INCIDENCE_ANGLE) * degradation)
+
+
+def ok(passed):
+    return "OK  " if passed else "FAIL"
+
+
+def check_peak(name, array_area, battery_capacity, rtg_load):
+    """Peak load at end of science (aphelion, EOL array and RTG), sunlit and in eclipse.
+    Battery covers what the array/RTG can't, for PEAK_DURATION, within BATTERY_MAX_DOD."""
+    array_load = array_area * ARRAY_POWER_DENSITY * ARRAY_OUT_EFF  # [W] at loads
+    battery_energy = battery_capacity * BATTERY_EOL_CAPACITY * BATTERY_OUT_EFF  # [Wh] at loads, full discharge
+    print(f" {name}")
+    print(f"  Peak load              {PEAK_LOAD:10.1f} W")
+    for phase, supply in (("sunlit", array_load + rtg_load), ("eclipse", rtg_load)):
+        deficit = max(0.0, PEAK_LOAD - supply)                      # [W] from battery
+        dod = deficit * PEAK_DURATION / C.WH_TO_J / battery_energy  # fraction
+        print(f"  [{ok(dod <= BATTERY_MAX_DOD)}] {phase:8} supply {supply:7.1f} W, battery {deficit:6.1f} W, "
+              f"DoD {dod * 100:5.1f}% (max {BATTERY_MAX_DOD * 100:.0f}%)")
+
+
+print()
+print("=" * 45)
+print(" CHECK - PEAK POWER (end of science)")
+print("=" * 45)
+check_peak("Case 1 (solar)", CASE1_ARRAY_AREA, CASE1_BATTERY_CAPACITY, 0.0)
+check_peak("Case 2 (solar + RTG)", SOLAR_ARRAY_SIZE, BATTERY_CAPACITY, RTG_LOAD)
+
+print()
+print("=" * 45)
+print(" CHECK - HIBERNATION (transfer)")
+print("=" * 45)
+print(f"  Hibernation load       {HIBERNATION_LOAD:10.1f} W")
+
+print(" Case 1 (solar), max Sun distance at end of each phase")
+phase_years = sum(duration for _, duration, _ in TRANSFER_PHASES)
+if abs(phase_years * C.YEAR - TRANSFER_DURATION) > 0.05 * C.YEAR:
+    print(f"  WARNING: phases sum to {phase_years:.2f} yr, transfer is {TRANSFER_DURATION / C.YEAR:.2f} yr")
+t_end = 0.0
+for phase, duration, r_max_au in TRANSFER_PHASES:
+    t_end += duration * C.YEAR
+    supply = CASE1_ARRAY_AREA * array_density(r_max_au * C.AU, t_end) * ARRAY_OUT_EFF  # [W]
+    print(f"  [{ok(supply >= HIBERNATION_LOAD)}] {phase:22} {r_max_au:4.2f} AU @ {t_end / C.YEAR:3.1f} yr: "
+          f"{supply:7.1f} W ({supply / HIBERNATION_LOAD - 1:+.0%})")
+          
+# Power scales with 1/r², so the furthest workable distance follows directly
+supply_1au = CASE1_ARRAY_AREA * array_density(C.AU, TRANSFER_DURATION) * ARRAY_OUT_EFF  # [W]
+print(f"  Max Sun distance at end of transfer: {(supply_1au / HIBERNATION_LOAD) ** 0.5:.2f} AU")
+
+print(" Case 2 (RTG only), end of transfer")
+supply = rtg_power(TRANSFER_DURATION) * BUS_TO_LOAD_EFF  # [W]
+print(f"  [{ok(supply >= HIBERNATION_LOAD)}] {'end of transfer':22} {supply:7.1f} W ({supply / HIBERNATION_LOAD - 1:+.0%})")
 print("=" * 45)
