@@ -2,13 +2,11 @@ import numpy as np
 import constants as C
 propulsion = 'chemical'
 
-
-
 ###Spacecraft Power 
 
 ADCSpower = 304 # [W]
 OBDHpower = 1.5 # 0.5-1.5 [W]
-COMMpower_data = 100 # 20-30 [W]
+COMMpower_data = 100 # 100 [W]
 COMMpower_telemetry = 10 # 20-30 [W]
 PROPpower = 2 # Margin, we don't know. [W]
 TCpower = 172.21 # with 6% margin [W]
@@ -43,7 +41,7 @@ ARRAY_TO_BUS_EFF = 0.9     # fraction
 BUS_TO_LOAD_EFF = 0.9      # fraction
 BATTERY_TO_BUS_EFF = 0.9   # fraction; converter/path losses only
 BUS_TO_BATTERY_EFF = 0.9   # fraction; converter/path losses only
-PMAD_MASS = 10            # kg, initial estimate or component sum
+PMAD_SPECIFIC_MASS = 0.02   # kg/W of peak power handled by the bus (regulators, converters, harness)
 PMAD_SPECIFIC_COST = 100e3  # EUR/kg, ROUGH placeholder for space-grade power electronics
 
 
@@ -59,14 +57,14 @@ RTG_SPEC_COST = 7.3e-6 # W / EUR
 
 
 # ---------- Solar-array inputs: from selected cell/array data ----------
-CELL_EFFICIENCY_REF = 0.3  # fraction, at reference temperature
+CELL_EFFICIENCY_REF = 0.25  # fraction, at reference temperature
 CELL_REFERENCE_TEMP = 301.15 # K
 POWER_TEMP_COEFF = -0.0025     # 1/K, relative coefficient; usually negative
 CELL_OPERATING_TEMP = 420  # K
 
 ARRAY_EOL_FACTOR = 0.75    # fraction of initial performance remaining
 ARRAY_PACKING_FACTOR = 0.9 # active cell area / total panel area
-SUN_INCIDENCE_ANGLE = 0.5  # rad, measured FROM THE PANEL NORMAL
+SUN_INCIDENCE_ANGLE = np.pi/4  # rad, measured FROM THE PANEL NORMAL
 
 ARRAY_AREAL_MASS = 2     # kg/m²; document included hardware
 ARRAY_SPECIFIC_COST = 350e3  # EUR/m², ROUGH placeholder (~1000 EUR/W at 1 AU for 30% cells)
@@ -160,6 +158,14 @@ BATTERY_CAPACITY = ECLIPSE_ENERGY / (
 BATTERY_MASS = BATTERY_CAPACITY / BATTERY_SPECIFIC_ENERGY  # [kg]
 BATTERY_VOLUME = BATTERY_CAPACITY / BATTERY_ENERGY_DENSITY  # [L]
 
+# ---------- PMAD: sized on the peak power it has to handle ----------
+# Sunlit: everything the array puts on the bus. Eclipse: what the bus feeds the loads.
+PMAD_POWER = max(
+    ARRAY_POWER_REQ * ARRAY_TO_BUS_EFF,
+    ECLIPSE_POWER / BUS_TO_LOAD_EFF,
+)  # [W]
+PMAD_MASS = PMAD_POWER * PMAD_SPECIFIC_MASS  # [kg]
+
 EPS_MASS = SOLAR_ARRAY_MASS + BATTERY_MASS + PMAD_MASS  # [kg]
 EPS_MASS_MARGIN = EPS_MASS * (1 + MASS_MARGIN)          # [kg]
 
@@ -192,7 +198,7 @@ print(f"  DoD used               {BATTERY_DOD * 100:10.1f} %  (max {BATTERY_MAX_
 print("EPS mass")
 print(f"  Solar array            {SOLAR_ARRAY_MASS:10.2f} kg")
 print(f"  Battery                {BATTERY_MASS:10.2f} kg")
-print(f"  PMAD                   {PMAD_MASS:10.2f} kg")
+print(f"  PMAD                   {PMAD_MASS:10.2f} kg  ({PMAD_POWER:.0f} W handled)")
 print(f"  Total                  {EPS_MASS:10.2f} kg")
 print(f"  Total + {MASS_MARGIN * 100:.0f}% margin     {EPS_MASS_MARGIN:10.2f} kg")
 print("EPS cost (rough)")
@@ -242,6 +248,14 @@ BATTERY_CAPACITY = BATTERY_ECLIPSE_ENERGY / (
 BATTERY_MASS = BATTERY_CAPACITY / BATTERY_SPECIFIC_ENERGY  # [kg]
 BATTERY_VOLUME = BATTERY_CAPACITY / BATTERY_ENERGY_DENSITY  # [L]
 
+# ---------- PMAD: sized on the peak power it has to handle ----------
+# Sunlit: array + RTG power on the bus. Eclipse: RTG + battery feeding the loads.
+PMAD_POWER = max(
+    ARRAY_POWER_REQ * ARRAY_TO_BUS_EFF + RTG_POWER_EOL,
+    ECLIPSE_POWER / BUS_TO_LOAD_EFF,
+)  # [W]
+PMAD_MASS = PMAD_POWER * PMAD_SPECIFIC_MASS  # [kg]
+
 EPS_MASS = RTG_MASS + SOLAR_ARRAY_MASS + BATTERY_MASS + PMAD_MASS  # [kg]
 EPS_MASS_MARGIN = EPS_MASS * (1 + MASS_MARGIN)                     # [kg]
 
@@ -283,7 +297,7 @@ print("EPS mass")
 print(f"  RTG                    {RTG_MASS:10.2f} kg")
 print(f"  Solar array            {SOLAR_ARRAY_MASS:10.2f} kg")
 print(f"  Battery                {BATTERY_MASS:10.2f} kg")
-print(f"  PMAD                   {PMAD_MASS:10.2f} kg")
+print(f"  PMAD                   {PMAD_MASS:10.2f} kg  ({PMAD_POWER:.0f} W handled)")
 print(f"  Total                  {EPS_MASS:10.2f} kg")
 print(f"  Total + {MASS_MARGIN * 100:.0f}% margin     {EPS_MASS_MARGIN:10.2f} kg")
 print("EPS cost (rough)")
