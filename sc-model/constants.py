@@ -6,6 +6,8 @@ AU = 149_597_870_700.0       # m
 SOLAR_FLUX_1AU = 1361.0     # W/m², nominal solar irradiance at 1 AU
 SIGMA_SB = 5.670374419e-8    # W/(m² K⁴), Stefan–Boltzmann constant
 G0 = 9.80665                # m/s², standard gravity
+SPEED_OF_LIGHT = 299_792_458.0  # m/s
+BOLTZMANN = 1.380649e-23    # J/K
 
 HOUR = 3600.0               # s
 DAY = 86400.0               # s
@@ -18,6 +20,10 @@ MERCURY_RADIUS = 2.4397e6   # m
 MERCURY_MU = 2.2032e13      # m³/s², gravitational parameter
 MERCURY_PERIHELION = 0.3075 * AU  # m
 MERCURY_APHELION = 0.4667 * AU    # m
+MERCURY_SYNODIC_PERIOD = 115.88 * DAY  # s, as seen from Earth
+
+EARTH_PERIHELION = 0.9833 * AU    # m
+EARTH_APHELION = 1.0167 * AU      # m
 
 
 # ---------- Mission inputs: confirm against your design ----------

@@ -3,8 +3,10 @@ import src.constants as ct
 import math
 import os
 
+CASES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'cases')
+
 # Function to list available case files
-def list_case_files(directory='cases'):
+def list_case_files(directory=CASES_DIR):
     return sorted([f for f in os.listdir(directory) if f.startswith('case') and f.endswith('.txt')])
 
 # Text-based UI for case selection
@@ -29,7 +31,7 @@ def select_case():
         try:
             selection = int(user_input)
             if 1 <= selection <= len(cases):
-                return os.path.join('cases', cases[selection - 1])
+                return os.path.join(CASES_DIR, cases[selection - 1])
             else:
                 print(f"Invalid selection. Please choose a number between 1 and {len(cases)}.")
         except ValueError:
@@ -61,14 +63,11 @@ turn_around_ratio = case_data['turn_around_ratio']
 modulation_type = case_data['modulation_type']
 height_m = case_data['orbit_altitude']  # Already converted to meters by parser
 offset_deg = case_data['pointing_offset_angle_spacecraft']
-swath_angle_deg = case_data['payload_swath_width_angle']
-bits_per_pixel = case_data['payload_bits_per_pixel']
-pixel_size_deg = case_data['payload_pixel_size']  # Already converted to degrees by parser
-duty_cycle = case_data['payload_duty_cycle']  # Already converted to fraction by parser
 required_uplink_data_rate = case_data['required_uplink_data_rate']
 required_ber = case_data['required_ber']
 elongation_angle = case_data.get('elongation_angle', 0)
-downlink_time_fraction = case_data['payload_downlink_time']  # Already converted to fraction of day
+# Optional: if given (and not NA), use it directly instead of deriving it from the payload
+given_downlink_rate = case_data.get('required_downlink_data_rate', 0)
 
 # ============================================================================
 # FREQUENCY AND WAVELENGTH CALCULATIONS
@@ -134,14 +133,26 @@ FSPL_down_lin, FSPL_down_db = calculate_FSPL(distance_m, lambda_down)
 # ============================================================================
 # POINTING LOSS
 # ============================================================================
+def calculate_beamwidth(diameter, wavelength):
+    return 70 * (wavelength / diameter)  # 3dB beamwidth in degrees
+
 def calculate_pointing_loss(diameter, wavelength, offset_deg):
 
-    theta_3db = 70 * (wavelength / diameter)  # 3dB beamwidth in degrees
+    theta_3db = calculate_beamwidth(diameter, wavelength)
     point_loss_db = 12 * (offset_deg / theta_3db) ** 2
     return point_loss_db
 
+# 12*(e/theta)^2 grows with D^2 while the gain only grows with 20*log10(D), so for a
+# fixed pointing offset there is a best diameter (pointing loss = 4.3 dB there).
+# Above it a bigger dish LOSES dB; once e > theta/2 the beam misses Earth entirely
+# and the formula (main-lobe fit) is no longer valid.
+def calculate_optimal_diameter(wavelength, offset_deg):
+    return 70 * wavelength / offset_deg * math.sqrt(20 / (24 * math.log(10)))
+
 point_loss_down = calculate_pointing_loss(antenna_diameter_spacecraft, lambda_down, offset_deg)
 point_loss_up = calculate_pointing_loss(antenna_diameter_spacecraft, lambda_up, offset_deg)
+theta_3db_down = calculate_beamwidth(antenna_diameter_spacecraft, lambda_down)
+theta_3db_up = calculate_beamwidth(antenna_diameter_spacecraft, lambda_up)
 
 # Apply pointing loss to spacecraft antenna (both transmit on downlink and receive on uplink)
 trans_gain_down_db -= point_loss_down
@@ -162,33 +173,46 @@ EIRP_up_db = calculate_EIRP(tx_power_ground, tx_loss_factor, trans_gain_up_db)
 # ============================================================================
 # PAYLOAD DATA RATE CALCULATION 
 # ============================================================================
-# Calculate orbital velocity
-orbital_velocity = math.sqrt(ct.G * ct.PLANET_WEIGHTS[planet] / (height_m + ct.PLANET_RADII[planet]))
+if isinstance(given_downlink_rate, (int, float)) and given_downlink_rate > 0:
+    required_downlink_rate = given_downlink_rate
 
-# Convert angular measurements to linear dimensions
-# Swath width at nadir (ground level)
-swath_width_m = 2 * height_m * math.tan(math.radians(swath_angle_deg) / 2)
+    print(f"=== PAYLOAD ANALYSIS ===")
+    print(f"Required downlink rate given in case file (payload calculation skipped)")
+    print(f"Required downlink rate: {required_downlink_rate/1e9} Gbps\n")
+else:
+    swath_angle_deg = case_data['payload_swath_width_angle']
+    bits_per_pixel = case_data['payload_bits_per_pixel']
+    pixel_size_deg = case_data['payload_pixel_size']  # Already converted to degrees by parser
+    duty_cycle = case_data['payload_duty_cycle']  # Already converted to fraction by parser
+    downlink_time_fraction = case_data['payload_downlink_time']  # Already converted to fraction of day
 
-# Pixel size at nadir (ground level)
-pixel_size_rad = math.radians(pixel_size_deg)
-pixel_size_m = height_m * pixel_size_rad
+    # Calculate orbital velocity
+    orbital_velocity = math.sqrt(ct.G * ct.PLANET_WEIGHTS[planet] / (height_m + ct.PLANET_RADII[planet]))
 
-# Payload data generation rate 
-# RG = BP * (SW * V) / PS^2
-data_rate_payload = bits_per_pixel * (swath_width_m * orbital_velocity) / (pixel_size_m ** 2)
+    # Convert angular measurements to linear dimensions
+    # Swath width at nadir (ground level)
+    swath_width_m = 2 * height_m * math.tan(math.radians(swath_angle_deg) / 2)
 
-# Required downlink data rate
-# R = RG * (DC / TDL)
-required_downlink_rate = data_rate_payload * (duty_cycle / downlink_time_fraction)
+    # Pixel size at nadir (ground level)
+    pixel_size_rad = math.radians(pixel_size_deg)
+    pixel_size_m = height_m * pixel_size_rad
 
-print(f"=== PAYLOAD ANALYSIS ===")
-print(f"Orbital velocity: {orbital_velocity:.2f} m/s")
-print(f"Swath width: {swath_width_m/1000:.2f} km")
-print(f"Pixel size: {pixel_size_m:.2f} m")
-print(f"Payload data generation rate: {data_rate_payload/1e9} Gbps")
-print(f"Duty cycle: {duty_cycle*100:.0f}%")
-print(f"Downlink time: {downlink_time_fraction*24:.2f} hours/day")
-print(f"Required downlink rate: {required_downlink_rate/1e9} Gbps\n")
+    # Payload data generation rate
+    # RG = BP * (SW * V) / PS^2
+    data_rate_payload = bits_per_pixel * (swath_width_m * orbital_velocity) / (pixel_size_m ** 2)
+
+    # Required downlink data rate
+    # R = RG * (DC / TDL)
+    required_downlink_rate = data_rate_payload * (duty_cycle / downlink_time_fraction)
+
+    print(f"=== PAYLOAD ANALYSIS ===")
+    print(f"Orbital velocity: {orbital_velocity:.2f} m/s")
+    print(f"Swath width: {swath_width_m/1000:.2f} km")
+    print(f"Pixel size: {pixel_size_m:.2f} m")
+    print(f"Payload data generation rate: {data_rate_payload/1e9} Gbps")
+    print(f"Duty cycle: {duty_cycle*100:.0f}%")
+    print(f"Downlink time: {downlink_time_fraction*24:.2f} hours/day")
+    print(f"Required downlink rate: {required_downlink_rate/1e9} Gbps\n")
 
 # ============================================================================
 # LINK BUDGET ANALYSIS - DOWNLINK 
@@ -211,9 +235,21 @@ eb_n0_received_down_db = (
     - rx_loss_db
 )
 
-# Determine required Eb/N0 based on modulation and BER
-# For uncoded BPSK at BER=10^-6, required Eb/N0 == 10.5 dB
-required_eb_n0_db = 10.5
+# Determine required Eb/N0 from the required BER, uncoded BPSK/QPSK:
+# BER = 0.5 * erfc(sqrt(Eb/N0)), inverted by bisection (BER 1e-6 -> 10.5 dB, 1e-5 -> 9.6 dB)
+def calculate_required_eb_n0(ber):
+    if not ber:
+        return 10.5
+    lo, hi = 0.0, 100.0
+    for _ in range(100):
+        mid = (lo + hi) / 2
+        if 0.5 * math.erfc(math.sqrt(mid)) > ber:
+            lo = mid
+        else:
+            hi = mid
+    return 10 * math.log10(hi)
+
+required_eb_n0_db = calculate_required_eb_n0(required_ber)
 
 # Calculate link margin
 margin_down_db = eb_n0_received_down_db - required_eb_n0_db
@@ -268,6 +304,17 @@ print(f"Required Eb/N0: {required_eb_n0_db:.2f} dB")
 print(f"Link Margin: {margin_up_db:.2f} dB")
 if not pass_u:
     print(f"⚠️  Need {3.0 - margin_up_db:.2f} dB more margin to pass")
+print()
+
+# Pointing sanity check (spacecraft antenna)
+for link, theta, wavelength in (("Downlink", theta_3db_down, lambda_down), ("Uplink", theta_3db_up, lambda_up)):
+    D_opt = calculate_optimal_diameter(wavelength, offset_deg)
+    if offset_deg > theta / 2:
+        print(f"⚠️  {link}: pointing offset {offset_deg:.3f} deg > half the 3dB beamwidth ({theta / 2:.4f} deg).")
+        print(f"    The beam misses Earth; the pointing-loss formula is invalid here.")
+    if antenna_diameter_spacecraft > D_opt:
+        print(f"⚠️  {link}: S/C antenna {antenna_diameter_spacecraft:.2f} m is above the best diameter "
+              f"{D_opt:.2f} m for a {offset_deg} deg offset; a bigger dish loses dB.")
 print()
 
 # Debug information

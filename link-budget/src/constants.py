@@ -11,17 +11,20 @@ SYSTEM_NOISE_TEMP = 135 #K
 G = 6.67408e-11
 
 
-# Planetary distances from Sun (in meters)
+# Planetary distances from Sun (in meters); Moon is its distance from Earth.
+# These go into the law of cosines with the elongation angle, so they must be
+# Sun distances. (They used to be Sun distance + 1 AU, i.e. the max Earth
+# distance, which double-counted the Earth-Sun leg.)
 PLANETS = {
-    "Mercury": 1.39 * AU,
-    "Venus": 1.72 * AU,
+    "Mercury": 0.39 * AU,
+    "Venus": 0.72 * AU,
     "Earth": 1.0 * AU,
-    "Mars": 2.52 * AU,
-    "Jupiter": 6.20 * AU,
-    "Saturn": 10.58 * AU,
-    "Uranus": 20.22 * AU,
-    "Neptune": 31.05 * AU,
-    "Pluto": 40.48 * AU,
+    "Mars": 1.52 * AU,
+    "Jupiter": 5.20 * AU,
+    "Saturn": 9.58 * AU,
+    "Uranus": 19.22 * AU,
+    "Neptune": 30.05 * AU,
+    "Pluto": 39.48 * AU,
     "Moon": 0.00257 * AU
 }
 
