@@ -26,7 +26,6 @@ EARTH_PERIHELION = 0.9833 * AU    # m
 EARTH_APHELION = 1.0167 * AU      # m
 EARTH_RADIUS = 6.3781e6           # m
 EARTH_MU = 3.986004418e14         # m³/s²
-
 SUN_MU = 1.32712440018e20         # m³/s²
 
 
