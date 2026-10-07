@@ -1,5 +1,6 @@
 import numpy as np
 import constants as C
+import components as COMP
 propulsion = 'chemical'
 
 ###Spacecraft Power 
@@ -24,12 +25,8 @@ PAYpower = HSRC_a + HSRC_i + UVS + MAG + Laser_a + Laser_i # [W]
 #print(PAYpower)
 ###Mission Charachteristics
 
-TRANSFER_DURATION = 6.7 * C.YEAR   # s
-MAX_ECLIPSE_DURATION = 2115.2 # s
-EARTH_OCCULTATION = 2118
-ORBITAL_PERIOD = 7630 #s
-SUNLIGHT_DURATION = ORBITAL_PERIOD - MAX_ECLIPSE_DURATION # s, available recharge time per orbit
-DATA_TRANS_PERIOD = ORBITAL_PERIOD - EARTH_OCCULTATION
+SUNLIGHT_DURATION = C.ORBITAL_PERIOD - C.MAX_ECLIPSE_DURATION # s, available recharge time per orbit
+DATA_TRANS_PERIOD = C.ORBITAL_PERIOD - C.EARTH_OCCULTATION
 
 POWER_SCIENCE = None       
 POWER_HIBERNATION = OBDHpower + COMMpower_telemetry + TCpower  # W, cruise: payload, ADCS wheels & data comms off
@@ -90,7 +87,7 @@ BATTERY_CYCLE_EXPONENT = 1.5  # k in N = N_rated * (DoD/DoD_rated)^-k; 1.5-2, lo
 RTG_DECAY_HALF_LIFE = 87.7 * C.YEAR  # s, Pu-238
 
 # ---------- Design check inputs ----------
-PEAK_DURATION = MAX_ECLIPSE_DURATION  # s, conservative: peak load lasts a full eclipse
+PEAK_DURATION = C.MAX_ECLIPSE_DURATION  # s, conservative: peak load lasts a full eclipse
 
 # Transfer phases, used for the hibernation check: (name, duration [yr], max Sun distance [AU]).
 
@@ -118,18 +115,18 @@ ECLIPSE_POWER = (
     HSRC_a * 0.2 + HSRC_i * 0.8 + UVS * 0.25 + MAG + Laser_a
     + OBDHpower + COMMpower_data + ADCSpower + TCpower
 ) * (1 + POWER_MARGIN)  # [W]
-ECLIPSE_ENERGY = ECLIPSE_POWER * MAX_ECLIPSE_DURATION / C.WH_TO_J  # [Wh]
+ECLIPSE_ENERGY = ECLIPSE_POWER * C.MAX_ECLIPSE_DURATION / C.WH_TO_J  # [Wh]
 
 # ---------- Shared: energy used per orbit ----------
 ORBIT_ENERGY = (
 
-    (HSRC_a * 0.2 *ORBITAL_PERIOD + HSRC_i * 0.8 * ORBITAL_PERIOD + UVS *0.25 * ORBITAL_PERIOD + MAG * ORBITAL_PERIOD + Laser_a * MAX_ECLIPSE_DURATION + Laser_i * SUNLIGHT_DURATION) +
-    PROPpower * 0 + OBDHpower * ORBITAL_PERIOD + COMMpower_data * DATA_TRANS_PERIOD + ADCSpower *ORBITAL_PERIOD + TCpower * ORBITAL_PERIOD +STRUCpower * 0
+    (HSRC_a * 0.2 *C.ORBITAL_PERIOD + HSRC_i * 0.8 * C.ORBITAL_PERIOD + UVS *0.25 * C.ORBITAL_PERIOD + MAG * C.ORBITAL_PERIOD + Laser_a * C.MAX_ECLIPSE_DURATION + Laser_i * SUNLIGHT_DURATION) +
+    PROPpower * 0 + OBDHpower * C.ORBITAL_PERIOD + COMMpower_data * DATA_TRANS_PERIOD + ADCSpower *C.ORBITAL_PERIOD + TCpower * C.ORBITAL_PERIOD +STRUCpower * 0
 ) * (1+POWER_MARGIN) # [j]
 
 # ---------- Shared: battery discharge cycles ----------
 
-SCIENCE_ORBITS = int(C.SCIENCE_DURATION / ORBITAL_PERIOD)
+SCIENCE_ORBITS = int(C.SCIENCE_DURATION / C.ORBITAL_PERIOD)
 BATTERY_CYCLES = SCIENCE_ORBITS
 
 # Deepest discharge that still survives BATTERY_CYCLES, capped at the allowed max
@@ -218,7 +215,7 @@ CASE1_PMAD_POWER = PMAD_POWER
 HIBERNATION_LOAD = POWER_HIBERNATION * (1 + POWER_MARGIN)  # [W]
 
 # RTG sized to still cover hibernation at the end of the transfer
-transfer = TRANSFER_DURATION or 0  # s, None -> no decay during cruise counted
+transfer = C.TRANSFER_DURATION or 0  # s, None -> no decay during cruise counted
 RTG_POWER_REQ = HIBERNATION_LOAD / BUS_TO_LOAD_EFF                        # [W]
 RTG_POWER_BOL = RTG_POWER_REQ / 0.5 ** (transfer / RTG_DECAY_HALF_LIFE)   # [W]
 RTG_POWER_EOL = RTG_POWER_BOL * 0.5 ** ((transfer + C.SCIENCE_DURATION) / RTG_DECAY_HALF_LIFE)  # [W]
@@ -229,7 +226,7 @@ RTG_COST = RTG_POWER_BOL / RTG_SPEC_COST   # [EUR]
 RTG_LOAD = RTG_POWER_EOL * BUS_TO_LOAD_EFF  # [W]
 
 # Solar array: remaining orbit energy, delivered during sunlight only
-SOLAR_ORBIT_ENERGY = ORBIT_ENERGY - RTG_LOAD * ORBITAL_PERIOD  # [J]
+SOLAR_ORBIT_ENERGY = ORBIT_ENERGY - RTG_LOAD * C.ORBITAL_PERIOD  # [J]
 ORBITAL_POWER = SOLAR_ORBIT_ENERGY / SUNLIGHT_DURATION         # [W]
 ARRAY_POWER_REQ = ORBITAL_POWER / (ARRAY_TO_BUS_EFF * BUS_TO_LOAD_EFF)  # [W]
 
@@ -238,7 +235,7 @@ SOLAR_ARRAY_MASS = SOLAR_ARRAY_SIZE * ARRAY_AREAL_MASS    # [kg]
 
 # Battery: eclipse load not covered by the RTG
 BATTERY_ECLIPSE_POWER = ECLIPSE_POWER - RTG_LOAD                          # [W]
-BATTERY_ECLIPSE_ENERGY = BATTERY_ECLIPSE_POWER * MAX_ECLIPSE_DURATION / C.WH_TO_J  # [Wh]
+BATTERY_ECLIPSE_ENERGY = BATTERY_ECLIPSE_POWER * C.MAX_ECLIPSE_DURATION / C.WH_TO_J  # [Wh]
 BATTERY_CAPACITY = BATTERY_ECLIPSE_ENERGY / (
     BATTERY_DOD * BATTERY_EOL_CAPACITY * BATTERY_DISCHARGE_EFF
     * BATTERY_TO_BUS_EFF * BUS_TO_LOAD_EFF
@@ -272,7 +269,7 @@ print(f"  Orbit energy           {ORBIT_ENERGY / C.WH_TO_J:10.1f} Wh")
 print(f"  Hibernation load       {HIBERNATION_LOAD:10.1f} W")
 print(f"  Eclipse load           {ECLIPSE_POWER:10.1f} W")
 print("RTG")
-if TRANSFER_DURATION is None:
+if C.TRANSFER_DURATION is None:
     print("  (TRANSFER_DURATION not set: cruise decay ignored)")
 print(f"  Power BOL              {RTG_POWER_BOL:10.1f} W")
 print(f"  Power end of science   {RTG_POWER_EOL:10.1f} W")
@@ -323,7 +320,7 @@ print("=" * 45)
 # =====================================================================
 # DESIGN CHECKS: peak power (science) and hibernation (transfer)
 # =====================================================================
-MISSION_DURATION = TRANSFER_DURATION + C.SCIENCE_DURATION  # s
+MISSION_DURATION = C.TRANSFER_DURATION + C.SCIENCE_DURATION  # s
 PEAK_LOAD = POWER_PEAK * (1 + POWER_MARGIN)  # [W]
 BATTERY_OUT_EFF = BATTERY_DISCHARGE_EFF * BATTERY_TO_BUS_EFF * BUS_TO_LOAD_EFF
 ARRAY_OUT_EFF = ARRAY_TO_BUS_EFF * BUS_TO_LOAD_EFF
@@ -376,8 +373,8 @@ print(f"  Hibernation load       {HIBERNATION_LOAD:10.1f} W")
 
 print(" Case 1 (solar), max Sun distance at end of each phase")
 phase_years = sum(duration for _, duration, _ in TRANSFER_PHASES)
-if abs(phase_years * C.YEAR - TRANSFER_DURATION) > 0.05 * C.YEAR:
-    print(f"  WARNING: phases sum to {phase_years:.2f} yr, transfer is {TRANSFER_DURATION / C.YEAR:.2f} yr")
+if abs(phase_years * C.YEAR - C.TRANSFER_DURATION) > 0.05 * C.YEAR:
+    print(f"  WARNING: phases sum to {phase_years:.2f} yr, transfer is {C.TRANSFER_DURATION / C.YEAR:.2f} yr")
 t_end = 0.0
 for phase, duration, r_max_au in TRANSFER_PHASES:
     t_end += duration * C.YEAR
@@ -386,11 +383,11 @@ for phase, duration, r_max_au in TRANSFER_PHASES:
           f"{supply:7.1f} W ({supply / HIBERNATION_LOAD - 1:+.0%})")
           
 # Power scales with 1/r², so the furthest workable distance follows directly
-supply_1au = CASE1_ARRAY_AREA * array_density(C.AU, TRANSFER_DURATION) * ARRAY_OUT_EFF  # [W]
+supply_1au = CASE1_ARRAY_AREA * array_density(C.AU, C.TRANSFER_DURATION) * ARRAY_OUT_EFF  # [W]
 print(f"  Max Sun distance at end of transfer: {(supply_1au / HIBERNATION_LOAD) ** 0.5:.2f} AU")
 
 print(" Case 2 (RTG only), end of transfer")
-supply = rtg_power(TRANSFER_DURATION) * BUS_TO_LOAD_EFF  # [W]
+supply = rtg_power(C.TRANSFER_DURATION) * BUS_TO_LOAD_EFF  # [W]
 print(f"  [{ok(supply >= HIBERNATION_LOAD)}] {'end of transfer':22} {supply:7.1f} W ({supply / HIBERNATION_LOAD - 1:+.0%})")
 print("=" * 45)
 
@@ -401,26 +398,20 @@ print("=" * 45)
 # Array and PMAD keep the first-level sizing (area * ARRAY_AREAL_MASS, PMAD
 # specific mass), since the database gives neither a full array mass nor a
 # PCDU mass. Battery and RTG come from the component database.
-import importlib.util
-import sys
-
 FINAL_MASS_MARGIN = 0.05  # off-the-shelf hardware, mass known
-
-_spec = importlib.util.spec_from_file_location("component_database", "component-database.py")
-DB = importlib.util.module_from_spec(_spec)
-sys.modules["component_database"] = DB
-_spec.loader.exec_module(DB)
+CELL = COMP.SOLAR_CELLS["azur_3g28"]
+PCDU = COMP.PCDUS["airbus_evo"]
 
 
 def print_final(name, rtg, n_rtg, n_bat, battery, array_area, pmad_power, battery_req):
     """Print mass, size and cost of one architecture built from the selected hardware."""
     array_mass = array_area * ARRAY_AREAL_MASS
-    battery_mass = n_bat * battery.mass()
-    battery_energy = n_bat * battery.energy()
-    battery_volume = n_bat * battery.volume()
+    battery_mass = n_bat * battery["mass"]
+    battery_energy = n_bat * battery["energy"]
+    battery_volume = n_bat * battery["volume"]
     pmad_mass = pmad_power * PMAD_SPECIFIC_MASS
-    rtg_mass = n_rtg * rtg.mass() if rtg else 0.0
-    rtg_power = n_rtg * rtg.power_at_launch() if rtg else 0.0
+    rtg_mass = n_rtg * rtg["mass"] if rtg else 0.0
+    rtg_power = n_rtg * rtg["power"] if rtg else 0.0
 
     array_cost = array_area * ARRAY_SPECIFIC_COST
     battery_cost = battery_mass * BATTERY_SPECIFIC_COST
@@ -434,14 +425,14 @@ def print_final(name, rtg, n_rtg, n_bat, battery, array_area, pmad_power, batter
     print(f" FINAL HARDWARE - {name}")
     print("=" * 60)
     if rtg:
-        print(f"  RTG      {n_rtg} x {rtg.model:18} {rtg_mass:7.2f} kg  {rtg_cost / 1e6:6.2f} M EUR")
-        print(f"           {rtg_power:.0f} W BOL, {rtg.dimensions}")
-    print(f"  Array    {DB.azur_3g28.model + ' cells':22} {array_mass:7.2f} kg  {array_cost / 1e6:6.2f} M EUR")
+        print(f"  RTG      {n_rtg} x {rtg['model']:18} {rtg_mass:7.2f} kg  {rtg_cost / 1e6:6.2f} M EUR")
+        print(f"           {rtg_power:.0f} W BOL, {rtg['dimensions']}")
+    print(f"  Array    {CELL['model'] + ' cells':22} {array_mass:7.2f} kg  {array_cost / 1e6:6.2f} M EUR")
     print(f"           {array_area:.2f} m²")
-    print(f"  Battery  {n_bat} x {battery.model:18} {battery_mass:7.2f} kg  {battery_cost / 1e6:6.2f} M EUR")
+    print(f"  Battery  {n_bat} x {battery['model']:18} {battery_mass:7.2f} kg  {battery_cost / 1e6:6.2f} M EUR")
     print(f"           {battery_energy:.0f} Wh (req. {battery_req:.1f} Wh), {battery_volume:.2f} L")
-    print(f"  PCDU     {DB.airbus_evo_pcdu.model:22} {pmad_mass:7.2f} kg  {pmad_cost / 1e6:6.2f} M EUR")
-    print(f"           {pmad_power:.0f} W handled of {DB.airbus_evo_pcdu.max_power_W:.0f} W (mass parametric)")
+    print(f"  PCDU     {PCDU['model']:22} {pmad_mass:7.2f} kg  {pmad_cost / 1e6:6.2f} M EUR")
+    print(f"           {pmad_power:.0f} W handled of {PCDU['power'][1]:.0f} W (mass parametric)")
     print("-" * 60)
     print(f"  {'Total':32}{mass:7.2f} kg  {cost / 1e6:6.2f} M EUR")
     print(f"  {f'Total + {FINAL_MASS_MARGIN * 100:.0f}% margin':32}{mass * (1 + FINAL_MASS_MARGIN):7.2f} kg")
@@ -451,18 +442,19 @@ def print_final(name, rtg, n_rtg, n_bat, battery, array_area, pmad_power, batter
 
 # Architecture 1: 2 x Ibeos B28-1100
 print()
-A1 = print_final("ARCHITECTURE 1 (SOLAR)", None, 0, 2, DB.ibeos_battery,
+A1 = print_final("ARCHITECTURE 1 (SOLAR)", None, 0, 2, COMP.BATTERIES["ibeos"],
                  CASE1_ARRAY_AREA, CASE1_PMAD_POWER, CASE1_BATTERY_CAPACITY)
 
 # Architecture 2: GPHS-RTG + 1 x ABSL 8S16P. PMAD re-sized with the real RTG output.
-GPHS_POWER_EOL = DB.gphs_rtg.power_at_launch() * 0.5 ** (MISSION_DURATION / RTG_DECAY_HALF_LIFE)  # [W]
+GPHS = COMP.RTGS["gphs_rtg"]
+GPHS_POWER_EOL = GPHS["power"] * 0.5 ** (MISSION_DURATION / RTG_DECAY_HALF_LIFE)  # [W]
 FINAL_PMAD_POWER = max(ARRAY_POWER_REQ * ARRAY_TO_BUS_EFF + GPHS_POWER_EOL,
                        ECLIPSE_POWER / BUS_TO_LOAD_EFF)  # [W]
 print()
-A2 = print_final("ARCHITECTURE 2 (SOLAR + RTG)", DB.gphs_rtg, 1, 1, DB.enersys_battery,
+A2 = print_final("ARCHITECTURE 2 (SOLAR + RTG)", GPHS, 1, 1, COMP.BATTERIES["enersys"],
                  SOLAR_ARRAY_SIZE, FINAL_PMAD_POWER, BATTERY_CAPACITY)
-print(f"  GPHS-RTG BOL {DB.gphs_rtg.power_at_launch():.0f} W vs {RTG_POWER_BOL:.1f} W required "
-      f"[{ok(DB.gphs_rtg.power_at_launch() >= RTG_POWER_BOL)}]")
+print(f"  GPHS-RTG BOL {GPHS['power']:.0f} W vs {RTG_POWER_BOL:.1f} W required "
+      f"[{ok(GPHS["power"] >= RTG_POWER_BOL)}]")
 
 print()
 print(f"  {'':22} {'Arch 1':>9} {'Arch 2':>9}")

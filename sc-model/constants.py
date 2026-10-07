@@ -33,6 +33,8 @@ SUN_MU = 1.32712440018e20         # m³/s²
 # ---------- Mission inputs: confirm against your design ----------
 ORBIT_ALTITUDE = 750e3      # m, nominal circular orbit
 SCIENCE_DURATION = 1 * YEAR # s
+TRANSFER_DURATION = 6.7 * YEAR  # s
 
-
-# Fill these from your mission analysis / subsystem power budget.
+ORBITAL_PERIOD = 7630           # s
+MAX_ECLIPSE_DURATION = 2115.2   # s
+EARTH_OCCULTATION = 2118        # s, Earth hidden behind Mercury per orbit

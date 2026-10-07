@@ -15,11 +15,8 @@ D_EARTH_MAX = C.EARTH_APHELION + C.MERCURY_APHELION    # m, 1.483 AU, sizing cas
 D_EARTH_MIN = C.EARTH_PERIHELION - C.MERCURY_APHELION  # m, 0.517 AU
 # (R_Mercury + h) is ~3000 km, negligible next to 0.5-1.5 AU, so it is left out.
 
-# ---------- Orbit: same values as eps.py ----------
-ORBITAL_PERIOD = 7630              # s
-EARTH_OCCULTATION = 2118           # s, Earth hidden behind Mercury per orbit
-MAX_ECLIPSE_DURATION = 2115.2      # s
-EARTH_VISIBLE = ORBITAL_PERIOD - EARTH_OCCULTATION  # s, downlink possible (MER-COMMS-030)
+# ---------- Orbit ----------
+EARTH_VISIBLE = C.ORBITAL_PERIOD - C.EARTH_OCCULTATION  # s, downlink possible (MER-COMMS-030)
 
 
 # ---------- Requirements ----------
@@ -89,7 +86,7 @@ INSTRUMENTS = [
     ("HSRC (camera)",   1.0e6, 0.20),
     ("UVS",             50e3,  0.25),
     ("MAG",             2e3,   1.00),
-    ("Laser altimeter", 15e3,  MAX_ECLIPSE_DURATION / ORBITAL_PERIOD),  # on in eclipse
+    ("Laser altimeter", 15e3,  C.MAX_ECLIPSE_DURATION / C.ORBITAL_PERIOD),  # on in eclipse
     ("Housekeeping",    2e3,   1.00),
 ]
 PACKET_OVERHEAD = 0.05     # fraction, CCSDS packet/frame headers
@@ -176,7 +173,7 @@ def downlink_rate_required(band):
     generation = sum(rate * duty for _, rate, duty in INSTRUMENTS) * (1 + PACKET_OVERHEAD)  # bit/s
     blackout = 2 * SEP_MIN[band] / SEP_RATE                   # s per superior conjunction
     blackout_frac = blackout / C.MERCURY_SYNODIC_PERIOD
-    rate = generation * ORBITAL_PERIOD / EARTH_VISIBLE / (1 - blackout_frac)  # bit/s
+    rate = generation * C.ORBITAL_PERIOD / EARTH_VISIBLE / (1 - blackout_frac)  # bit/s
     storage = generation * blackout                           # bit, held through a conjunction
     return dict(generation=generation, blackout=blackout, blackout_frac=blackout_frac,
                 rate=rate, storage=storage)
@@ -211,10 +208,10 @@ for name, rate, duty in INSTRUMENTS:
 DATA = {band: downlink_rate_required(band) for band in ("Ka", "X")}
 gen = DATA["Ka"]["generation"]
 print(f"  Generation incl. {PACKET_OVERHEAD * 100:.0f}% overhead {gen / 1e3:9.1f} kbps")
-print(f"  Volume per orbit       {gen * ORBITAL_PERIOD / 8e9:10.2f} GB")
+print(f"  Volume per orbit       {gen * C.ORBITAL_PERIOD / 8e9:10.2f} GB")
 print(f"  Volume per day         {gen * C.DAY / 8e9:10.2f} GB")
-print(f"  Earth visible          {EARTH_VISIBLE / ORBITAL_PERIOD * 100:10.1f} % of the orbit")
-print(f"  Occultation storage    {gen * EARTH_OCCULTATION / 8e9:10.2f} GB")
+print(f"  Earth visible          {EARTH_VISIBLE / C.ORBITAL_PERIOD * 100:10.1f} % of the orbit")
+print(f"  Occultation storage    {gen * C.EARTH_OCCULTATION / 8e9:10.2f} GB")
 for band, data in DATA.items():
     print(f" {band}-band (SEP > {SEP_MIN[band]:.0f} deg)")
     print(f"  Conjunction blackout   {data['blackout'] / C.DAY:10.1f} days ({data['blackout_frac'] * 100:.1f}% of synodic period)")
