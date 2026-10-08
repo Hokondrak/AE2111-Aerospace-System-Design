@@ -44,7 +44,11 @@ for p in PHASES:
 #-----------------
 # Calculate Torques
 #-----------------
-# Worst-case (SMAD) disturbance torques. Every torque is given as
+# Every *_torque function returns the torque VECTOR [Tx, Ty, Tz] [Nm] in the body frame
+# of spacecraft.py, about the CoM: shape (3,) for one geometry, (N, 3) for N geometries.
+# All direction inputs (Sun, flow, nadir, magnetic field) are vectors in body axes.
+#
+# Worst-case (SMAD) tables are built from those vectors with worst_case():
 #   [Tx, Ty, Tz, |T|] = largest |component| about each body axis, and largest magnitude,
 # each maximised separately over attitude and over the mass change within the phase
 # (so the per-axis worst cases can come from different attitudes). The totals add the
@@ -65,6 +69,7 @@ B_IMF_1AU = 6e-9           # T, interplanetary field at 1 AU, scaled with 1/r² 
 
 # ---------- Spacecraft properties ----------
 SC_DIPOLE = 1.0            # A m², residual magnetic dipole (SMAD default)             # CHECK
+SC_DIPOLE_DIR = np.array([0.0, 0.0, 1.0])  # unknown; only sets the default for a single vector  # CHECK
 Q_BUS = 0.6                # reflectance factor, MLI / white-coated bus                 # CHECK
 Q_SA  = 0.3                # reflectance factor, solar cells                            # CHECK
 Q_HGA = 0.6                # reflectance factor, white-painted dish                     # CHECK
@@ -86,6 +91,8 @@ def sphere_directions(n=5000):
 
 
 DIRECTIONS = sphere_directions()  # towards the radiation source / along the flow / to nadir
+AXES = np.vstack((np.eye(3), -np.eye(3)))  # ±X, ±Y, ±Z
+AZIMUTHS = np.radians(np.arange(360.0))    # direction of the thrust offset / misalignment
 
 
 def worst_case(torque):
@@ -107,31 +114,25 @@ def surfaces(s):
     ]
 
 
-def pressure_torque_vectors(pressure, s, cm, aero=False):
-    """Torque [Nm] from a uniform pressure [N/m²] arriving from directions s (N, 3).
+def pressure_torque(pressure, s, cm, aero=False): 
+    """Torque vector [Nm] from a uniform pressure [N/m²] arriving from unit direction(s) s,
+    (3,) or (N, 3), pointing from the spacecraft towards the source / into the flow.
     Flat-plate model: F = p A (1 + q) for radiation, F = p A C_D for drag, along the flow."""
-    torque = np.zeros_like(s)
-    for area, centre, q in surfaces(s):
+    s = np.asarray(s, dtype=float)
+    s2 = np.atleast_2d(s)
+    torque = np.zeros_like(s2)
+    for area, centre, q in surfaces(s2):
         coeff = CD if aero else 1 + q
-        force = -pressure * coeff * area[:, None] * s  # pushes away from the source
+        force = -pressure * coeff * area[:, None] * s2  # pushes away from the source
         torque += np.cross(centre - cm, force)
-    return torque
-
-
-def pressure_torque(pressure, cm, aero=False):
-    """Worst-case torque from a uniform pressure arriving from any direction."""
-    return worst_case(pressure_torque_vectors(pressure, DIRECTIONS, cm, aero))
+    return torque if s.ndim == 2 else torque[0]
 
 
 #gravity gradient
-def gravity_gradient_torque(mu, r, inertia):
-    """T = 3 mu / r³ (o x I o), o = nadir in body frame, over all attitudes.
+def gravity_gradient_torque(mu, r, inertia, o):
+    """T = 3 mu / r³ (o x I o) [Nm], o = unit nadir direction(s) (3,) or (N, 3) in the body frame.
     Magnitude peaks at 3 mu / (2 r³) (I_max - I_min), 45 deg between principal axes."""
-    return worst_case(gravity_gradient_vectors(mu, r, inertia, DIRECTIONS))
-
-
-def gravity_gradient_vectors(mu, r, inertia, o):
-    """Gravity-gradient torque [Nm] for nadir directions o (N, 3) in the body frame."""
+    o = np.asarray(o, dtype=float)
     return 3 * mu / r**3 * np.cross(o, o @ inertia)
 
 
@@ -145,29 +146,33 @@ RADIATOR_FORCE = (-(2 / 3) * RADIATOR_EMISSIVITY * C.SIGMA_SB * RADIATOR_TEMP**4
 
 
 def thermal_torque(cm):
-    """Body-fixed, so the components do not depend on attitude."""
-    return worst_case(np.cross(SC.BUS_POS - cm, RADIATOR_FORCE))
+    """Torque vector (3,) [Nm]. Body-fixed, so it does not depend on attitude."""
+    return np.cross(SC.BUS_POS - cm, RADIATOR_FORCE)
 
 
 #magnetic
-def magnetic_torque(field):
-    """T = D x B. Neither the dipole direction nor B in body axes is known, so every
-    axis can see the full D B."""
-    return np.full(4, SC_DIPOLE * field)
+def magnetic_torque(field, dipole=SC_DIPOLE * SC_DIPOLE_DIR):
+    """T = D x B [Nm], with field B [T] and dipole D [A m²] as body-axis vectors,
+    (3,) or (N, 3) each (broadcast)."""
+    return np.cross(dipole, field)
 
 
 #thrust misalignment (only while the main engine fires)
-def thrust_torque(cm):
-    """Engine on the -Z face, nominal thrust line along the Z axis.
-    The CoM offset gives F (-cm_y, cm_x, 0); the engine offset and misalignment angle
-    (direction unknown) add in the worst direction about X and Y. No torque about Z."""
-    error = THRUST_OFFSET + cm[2] * math.tan(THRUST_MISALIGNMENT)  # [m]
-    arm = np.hypot(cm[0], cm[1]) + error
-    return SC.ENGINE_THRUST * np.array([abs(cm[1]) + error, abs(cm[0]) + error, 0.0, arm])
+def thrust_torque(cm, azimuth):
+    """Torque vector [Nm], (3,) for a scalar azimuth or (N, 3) for an array.
+    Engine at the centre of the -Z face (z = 0), nominal thrust along +Z. The engine
+    offset and the misalignment tilt both point at `azimuth` [rad] from +X in the
+    XY plane (real direction unknown; pointing the same way is the worst case)."""
+    azimuth = np.asarray(azimuth, dtype=float)
+    c, s, zero = np.cos(azimuth), np.sin(azimuth), np.zeros_like(azimuth)
+    engine = THRUST_OFFSET * np.stack((c, s, zero), axis=-1)
+    a = THRUST_MISALIGNMENT
+    direction = np.stack((math.sin(a) * c, math.sin(a) * s, zero + math.cos(a)), axis=-1)
+    return np.cross(engine - cm, SC.ENGINE_THRUST * direction)
 
 
 def phase_torques(phase, m):
-    """All disturbance torques [Nm] in a flight phase at spacecraft mass m [kg]."""
+    """Worst-case [Tx, Ty, Tz, |T|] [Nm] of each disturbance in a flight phase at mass m [kg]."""
     cm, inertia = SC.mass_properties(m)
     solar_flux = C.SOLAR_FLUX_1AU * (C.AU / phase["sun_distance"])**2  # [W/m²]
     body = BODIES.get(phase["body"])
@@ -184,15 +189,17 @@ def phase_torques(phase, m):
         field = B_IMF_1AU * (C.AU / r)**2
     dynamic_pressure = 0.5 * phase.get("density", 0.0) * mu / r  # [Pa], circular orbit speed
 
-    #solar radiation torque, planetary albedo + IR, aerodynamic, magnetic
+    # Worst case over every attitude (DIRECTIONS). Neither the dipole direction nor B in
+    # body axes is known, so both are swept over all axis pairs: every axis sees the full D B.
+    magnetic = magnetic_torque(field * AXES[None, :, :], SC_DIPOLE * AXES[:, None, :]).reshape(-1, 3)
     return {
-        "Gravity gradient": gravity_gradient_torque(mu, r, inertia),
-        "Solar radiation":  pressure_torque(solar_flux / C.SPEED_OF_LIGHT, cm),
-        "Planet albedo+IR": pressure_torque(planet_flux / C.SPEED_OF_LIGHT, cm),
-        "Aerodynamic":      pressure_torque(dynamic_pressure, cm, aero=True),
-        "Magnetic":         magnetic_torque(field),
-        "Thermal":          thermal_torque(cm),
-        "Thrust misalign.": thrust_torque(cm) if phase["burn"] else np.zeros(4),
+        "Gravity gradient": worst_case(gravity_gradient_torque(mu, r, inertia, DIRECTIONS)),
+        "Solar radiation":  worst_case(pressure_torque(solar_flux / C.SPEED_OF_LIGHT, DIRECTIONS, cm)),
+        "Planet albedo+IR": worst_case(pressure_torque(planet_flux / C.SPEED_OF_LIGHT, DIRECTIONS, cm)),
+        "Aerodynamic":      worst_case(pressure_torque(dynamic_pressure, DIRECTIONS, cm, aero=True)),
+        "Magnetic":         worst_case(magnetic),
+        "Thermal":          worst_case(thermal_torque(cm)),
+        "Thrust misalign.": worst_case(thrust_torque(cm, AZIMUTHS)) if phase["burn"] else np.zeros(4),
     }
 
 
