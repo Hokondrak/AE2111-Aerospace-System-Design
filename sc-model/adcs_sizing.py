@@ -40,7 +40,11 @@ RW_radius = 0.1
 RW_height = 0.05
 RW_material_density = 2700 #aluminum, kg/m3
 RW_mass = RW_material_density * math.pi * RW_radius*RW_radius * RW_height
+
 RW_MMOI = 0.5 * RW_mass * RW_radius * RW_radius #1/2 mr^2
+RW_motor_torque = 0.2 #N/m
+RW_max_angular_accel = RW_motor_torque / RW_MMOI
+RW_max_angular_vel = 10 #rad/s
 I_w = np.array([RW_MMOI, RW_MMOI, RW_MMOI, RW_MMOI]) #array with mmoi for each rw. all the same but this array allows for them to be different
 
 def RW_angular_accels_To_SC_torque(RW_angular_accelerations):#ang accels: rad/s/s for each RW (there are 4 RW's)
@@ -50,6 +54,10 @@ def RW_angular_accels_To_SC_torque(RW_angular_accelerations):#ang accels: rad/s/
 def compute_RW_angular_accels_for_desired_torques(T_desired):
     B = wheel_axis_matrix @ np.diag(I_w)
     alpha = -np.linalg.pinv(B) @ T_desired
+    for i in range(len(alpha)):
+        a = alpha[i]
+        if a > RW_max_angular_vel:
+            print("alpha too high in wheel #"+str(i)+" !")
     return alpha
 
-print(compute_RW_angular_accels_for_desired_torques(T_max_with_SF))
+print(compute_RW_angular_accels_for_desired_torques(np.array([1, 0, 0])))
