@@ -8,9 +8,9 @@ T_max_with_SF = max_torque_SF * T_max
 
 h = 1
 a = 1
-L = math.sqrt(h*h + 9*a*a/4)
-d = math.sqrt(h*h + a*a)
-SQRT3 = math.sqrt(3)
+L = np.sqrt(h*h + 9*a*a/4)
+d = np.sqrt(h*h + a*a)
+SQRT3 = np.sqrt(3)
 
 #unit vectors for the reaction wheel axes:
 RW1_axis = np.array([h, 0, a]) / d
