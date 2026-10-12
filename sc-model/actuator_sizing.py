@@ -267,4 +267,6 @@ def mass_properties(m):
     inertia = BUS_INERTIA.copy()
     for mi, ri in zip(masses, positions - cm):  # parallel axis theorem
         inertia += mi * (ri @ ri * np.eye(3) - np.outer(ri, ri))
+
+    #easter egg
     return cm, inertia

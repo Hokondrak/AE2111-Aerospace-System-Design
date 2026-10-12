@@ -1,6 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import math
+import matplotlib.pyplot as plt
+import math
 
 T_max = np.array([0.0324732960, 0.0438448000, 0.0325321465])
 max_torque_SF = 1.5
