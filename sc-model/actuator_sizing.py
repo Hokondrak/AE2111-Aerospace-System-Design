@@ -14,5 +14,7 @@ def compute_mass_properties(m, meol, bus_mass, bus_inertia, bus_pos, sa_pos, hga
     inertia = bus_inertia.copy()
     for mi, ri in zip(masses, positions - cm):  # parallel axis theorem
         inertia += mi * (ri @ ri * np.eye(3) - np.outer(ri, ri))
+
+    #easter egg
     return cm, inertia
 
