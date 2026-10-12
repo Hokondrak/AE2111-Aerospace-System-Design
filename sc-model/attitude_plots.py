@@ -2,7 +2,7 @@
 Plots for attitude_sim.py. Running this file runs the sim (on import) and saves three figures
 to figures/, as PNG and PDF, without titles (the report captions carry those):
   1. disturbance_torques     - each torque source around the orbit (log scale)
-  2. attitude_response.png    - total torque, accumulated momentum and pointing error per axis
+  2. attitude_response.png    - total torque, momentum, angular velocity and pointing error per axis
   3. orbit_map.png            - total torque painted onto the first orbit
 """
 
@@ -79,6 +79,7 @@ error_deg = np.degrees(np.unwrap(error_rot.as_euler("XYZ"), axis=0))      # per 
 z_axis = error_rot.apply([0.0, 0.0, 1.0])                                  # body Z in the nadir frame
 off_nadir = np.degrees(np.arccos(np.clip(z_axis[:, 2], -1, 1)))           # how far Z is off Mercury
 momentum = np.cumsum(sim.T_log, axis=0) * sim.dt                           # [N m s]
+rate_deg = np.degrees(sim.rate_log)                                        # body rates [deg/s]
 
 # eclipse spans as (start, end) in orbits
 _e = np.r_[False, sim.eclipse_log.astype(bool), False].astype(int)
@@ -206,14 +207,15 @@ def plot_torques():
 
 # ---------- 2. Attitude response ----------
 def plot_response():
-    fig, axs = plt.subplots(4, 1, figsize=(TEXT_WIDTH, 6.9), sharex=True,
-                            gridspec_kw=dict(hspace=0.55, left=0.1, right=0.84, top=0.92, bottom=0.07))
+    fig, axs = plt.subplots(5, 1, figsize=(TEXT_WIDTH, 8.4), sharex=True,
+                            gridspec_kw=dict(hspace=0.6, left=0.1, right=0.84, top=0.935, bottom=0.06))
     i10 = np.argmax(off_nadir > 10)
 
     panels = [
         (sim.T_log * 1e6, "Total disturbance torque", "[µN·m]", lambda v: f"{v:+.0f}"),
         (momentum, "Accumulated momentum", "[N·m·s]",
          lambda v: f"{v:+.2f}"),
+        (rate_deg, "Angular velocity, body axes", "[°/s]", lambda v: f"{v:+.3f}"),
         (error_deg, "Deviation from the nadir-tracking attitude", "[°]", lambda v: f"{v:+.0f}°"),
     ]
     for ax, (data, title, unit, fmt) in zip(axs, panels):
@@ -225,10 +227,16 @@ def plot_response():
         ax.set_ylabel(unit)
         orbit_axis(ax, label=False)
         end_labels(ax, data[-1], [f"{AXES[k].split()[0]}  {fmt(data[-1, k])}" for k in range(3)], SERIES[:3])
-    axs[2].yaxis.set_major_locator(MultipleLocator(360))
+    axs[3].yaxis.set_major_locator(MultipleLocator(360))
+
+    # the rate the spacecraft should have: following the orbit about X
+    ax = axs[2]
+    ax.axhline(np.degrees(sim.dn), color=BASELINE, lw=0.6, zorder=1)
+    ax.text(0.005, np.degrees(sim.dn), "orbital rate", va="bottom", ha="left", fontsize=7, color=MUTED,
+            transform=blended_transform_factory(ax.transAxes, ax.transData))
 
     # off-nadir angle: the single number that matters for pointing
-    ax = axs[3]
+    ax = axs[4]
     shade_eclipses(ax)
     ax.axhline(10, color=BASELINE, lw=0.6, zorder=1)
     ax.text(0.005, 10, "10°", transform=blended_transform_factory(ax.transAxes, ax.transData),
@@ -247,9 +255,9 @@ def plot_response():
 
     # reference labels for the report text
     i = at(1.5)
-    tag(axs[2], "i", (orbit[i], error_deg[i, 2]), (orbit[i] + 0.12, error_deg[i, 2] - 220))  # yaw spin-up
+    tag(axs[3], "i", (orbit[i], error_deg[i, 2]), (orbit[i] + 0.12, error_deg[i, 2] - 220))  # yaw spin-up
     i = low(off_nadir, 0.85, 1.1)
-    tag(axs[3], "k", (orbit[i], off_nadir[i]), (orbit[i], 45))                  # swings back near nadir
+    tag(axs[4], "k", (orbit[i], off_nadir[i]), (orbit[i], 45))                  # swings back near nadir
 
     handles, labels = axs[0].get_legend_handles_labels()
     fig.legend(handles + [ECLIPSE_KEY], labels + ["Eclipse"], loc="upper left",
