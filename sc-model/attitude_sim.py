@@ -97,15 +97,18 @@ ddattitude = np.array([ddphi, ddbeta, ddgamma])
 
 # PID pointing control, always on. Switching it off is not an option: with ~0.3 mNm of disturbance
 # on ~500 kg m² the free drift breaks RATE_LIMIT within a few seconds, so the PID has to keep
-# cancelling the disturbance. All three closed-loop poles sit at -w_n, (s + w_n)^3, which gives a
-# smooth response without overshoot; the integral term learns the slowly varying disturbance.
+# cancelling the disturbance. 
+# 
+# All three closed-loop poles sit at -w_n, (s + w_n)^3, which gives a
+# smooth response without overshoot
+
 POINTING_LIMIT = np.radians(0.1)          # [rad] accuracy requirement: within 0.1 deg of nadir
 RATE_LIMIT = np.radians(0.3 / 3600)       # [rad/s] stability requirement: 0.3 arcsec/s
 T_CONTROL_MAX = 1e-3                      # [Nm] per axis, small correction torque (wheels can do 0.2)
 w_n = 0.15                                # [rad/s] closed-loop bandwidth, well below 1/dt for FE
-Kp = 3 * np.diag(inertia) * w_n**2        # per axis [Nm/rad]
-Kd = 3 * np.diag(inertia) * w_n           # [Nm s/rad]
-Ki = np.diag(inertia) * w_n**3            # [Nm/(rad s)]
+Kp = np.array([62.2232, 69.9133, 33.324])   # [Nm/rad]
+Kd = np.array([414.821, 466.089, 222.16])   # [Nm s/rad]
+Ki = np.array([3.11116, 3.49567, 1.6662])   # [Nm/(rad s)]
 
 def pid_torque(e, de, e_int):
     """Correction torque [Nm] from the error e [rad], its rate de [rad/s] and its integral e_int [rad s]."""

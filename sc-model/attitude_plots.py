@@ -170,10 +170,10 @@ def tag(ax, letter, xy, xytext=None):
 
 
 def limit_line(ax, y, text, ls="-"):
-    """Thin horizontal reference line, labelled in the right margin so the data can't cover it."""
+    """Thin horizontal reference line, labelled just above it at the left edge."""
     ax.axhline(y, color=BASELINE, lw=0.6, ls=ls, zorder=1)
-    ax.text(1.02, y, text, transform=blended_transform_factory(ax.transAxes, ax.transData),
-            ha="left", va="center", fontsize=7.5, color=INK_2)
+    ax.text(0.005, y, text, transform=blended_transform_factory(ax.transAxes, ax.transData),
+            ha="left", va="bottom", fontsize=7.5, color=INK_2, zorder=4)
 
 
 # ---------- 1. Disturbance torques by source ----------
@@ -358,7 +358,7 @@ def plot_orbit_map():
 # ---------- 4. Pointing under PID control ----------
 def plot_control():
     fig, axs = plt.subplots(3, 1, figsize=(TEXT_WIDTH, 5.6), sharex=True,
-                            gridspec_kw=dict(hspace=0.55, left=0.1, right=0.84, top=0.9, bottom=0.09))
+                            gridspec_kw=dict(hspace=0.55, left=0.1, right=0.98, top=0.9, bottom=0.09))
 
     # accuracy: error per axis, the 0.1 deg requirement is far off the top of this scale
     ax = axs[0]
