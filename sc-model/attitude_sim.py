@@ -65,6 +65,8 @@ attitude_log = []   # attitude vs the stars [phi, beta, gamma] [rad]
 rate_log = []       # body rates dattitude [rad/s]
 eclipse_log = []    # True while in Mercury's shadow
 day_log = []        # how lit the ground below is, 0 (night) to 1 (noon)
+derror_log = []     # rate error vs nadir tracking [rad/s] (control = True only)
+Tc_log = []         # control torque [Tx, Ty, Tz] [Nm] (control = True only)
 
 
 
@@ -93,7 +95,24 @@ attitude = Rot.identity()
 dattitude = np.array([dphi, dbeta, dgamma])
 ddattitude = np.array([ddphi, ddbeta, ddgamma])
 
-control_interventions = []
+# PID pointing control, always on. Switching it off is not an option: with ~0.3 mNm of disturbance
+# on ~500 kg m² the free drift breaks RATE_LIMIT within a few seconds, so the PID has to keep
+# cancelling the disturbance. All three closed-loop poles sit at -w_n, (s + w_n)^3, which gives a
+# smooth response without overshoot; the integral term learns the slowly varying disturbance.
+POINTING_LIMIT = np.radians(0.1)          # [rad] accuracy requirement: within 0.1 deg of nadir
+RATE_LIMIT = np.radians(0.3 / 3600)       # [rad/s] stability requirement: 0.3 arcsec/s
+T_CONTROL_MAX = 1e-3                      # [Nm] per axis, small correction torque (wheels can do 0.2)
+w_n = 0.15                                # [rad/s] closed-loop bandwidth, well below 1/dt for FE
+Kp = 3 * np.diag(inertia) * w_n**2        # per axis [Nm/rad]
+Kd = 3 * np.diag(inertia) * w_n           # [Nm s/rad]
+Ki = np.diag(inertia) * w_n**3            # [Nm/(rad s)]
+
+def pid_torque(e, de, e_int):
+    """Correction torque [Nm] from the error e [rad], its rate de [rad/s] and its integral e_int [rad s]."""
+    return np.clip(-(Kp * e + Kd * de + Ki * e_int), -T_CONTROL_MAX, T_CONTROL_MAX)
+
+e_int = np.zeros(3)           # integral of the error [rad s]
+
 #also precomputed from geometry, for simplicity reasons:
 #sun is active between angles (sun is to the right, s/c starts on the left.), we assume 2D ish sim for what its worth
 
@@ -134,20 +153,31 @@ if control == True:
         )
         T = sum(torques.values())
 
-        #save each into a list (before integrating, so everything belongs to the same moment)
+        #Pointing error vs nadir, and how fast it changes
         reference = Rot.from_rotvec([n, 0, 0])                 # perfect nadir pointing at this n
+        error = reference.inv() * attitude
+        e = error.as_rotvec()                                  # [rad] small angles per body axis
+        de = dattitude - error.inv().apply([dn, 0.0, 0.0])     # [rad/s] body rate minus the orbit-following rate
+
+        #Correction torque
+        e_int = e_int + e * dt
+        T_control = pid_torque(e, de, e_int)
+
+        #save each into a list (before integrating, so everything belongs to the same moment)
         n_log.append(n)
         t_log.append(t)
         torque_log.append(torques)
         T_log.append(T)
-        error_log.append((reference.inv() * attitude).as_rotvec())
+        error_log.append(e)
         attitude_log.append(attitude.as_euler("XYZ"))
         rate_log.append(dattitude)
         eclipse_log.append(eclipse)
         day_log.append(day)
+        derror_log.append(de)
+        Tc_log.append(T_control)
 
         #Compute angular acceleration
-        ddattitude = np.linalg.solve(inertia, T - np.cross(dattitude, inertia @ dattitude))
+        ddattitude = np.linalg.solve(inertia, T + T_control - np.cross(dattitude, inertia @ dattitude))
 
         #Integrate into angular velocity
         dattitude = dattitude + ddattitude * dt
@@ -157,8 +187,8 @@ if control == True:
 
 
         #Timestep
-        t = t + dt    
-    
+        t = t + dt
+
 
 
 
@@ -227,5 +257,6 @@ if control == False:
 # logs -> arrays for plotting, one row per timestep
 n_log, t_log, T_log, error_log, attitude_log, rate_log, eclipse_log, day_log = map(
     np.array, (n_log, t_log, T_log, error_log, attitude_log, rate_log, eclipse_log, day_log))
+derror_log, Tc_log = map(np.array, (derror_log, Tc_log))
 torque_arrays = {name: np.array([d[name] for d in torque_log]) for name in torque_log[0]}  # (steps, 3) per source
     
