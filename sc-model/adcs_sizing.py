@@ -1,8 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import math
-import matplotlib.pyplot as plt
-import math
+
+#not being used anymore, everything in actuator sizing
 
 T_max = np.array([0.0324732960, 0.0438448000, 0.0325321465])
 max_torque_SF = 1.5
@@ -23,7 +23,7 @@ RW4_axis = np.array([0, 0, -1])
 wheel_axis_matrix = np.array([RW1_axis, RW2_axis, RW3_axis, RW4_axis]).transpose()
 
 # Draw the RW axes
-"""
+'''
 fig = plt.figure()
 ax = fig.add_subplot(111, projection='3d')
 origin = np.array([0, 0, 0])
@@ -36,7 +36,7 @@ ax.set_ylabel('Y')
 ax.set_zlabel('Z')
 ax.legend()
 plt.show()
-"""
+'''
 
 RW_radius = 0.1
 RW_height = 0.05
