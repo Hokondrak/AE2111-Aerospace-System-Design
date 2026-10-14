@@ -26,7 +26,7 @@ from scipy.spatial.transform import Rotation as Rot
 #use euler first, then do rk6.
 
 #plot
-
+control = True # True = controls active, False = controls inactive:
 
 # 3. Torques from each of the sources, all as [Tx, Ty, Tz] [Nm] in body axes.
 # Every direction is a unit vector in BODY axes, 
@@ -93,70 +93,135 @@ attitude = Rot.identity()
 dattitude = np.array([dphi, dbeta, dgamma])
 ddattitude = np.array([ddphi, ddbeta, ddgamma])
 
-
+control_interventions = []
 #also precomputed from geometry, for simplicity reasons:
 #sun is active between angles (sun is to the right, s/c starts on the left.), we assume 2D ish sim for what its worth
 
 
-while n < 3 * 2* np.pi: # we do 3 orbits here to illustrate. I will do simple FE and then we'll see.
+if control == True:
+    while n < 3 * 2* np.pi: # we do 3 orbits here to illustrate. I will do simple FE and then we'll see.
+        
+        #Determin orbit position from the circular orbit equation
+        n = dn * t
+        #we are turning around mercury so:
+        mercury_space = np.array([0.0, -np.sin(n), np.cos(n)]) # where do we need to point in space coordinates to point to mercury
+        B_space = B0 * np.array([0.0, 1 - 3 * np.sin(n)**2, 3 * np.sin(n) * np.cos(n)]) # where does the magnetic field point, from satellites POV.
+        day = max(0.0, -mercury_space @ sun_space)   # 1 above the subsolar point, 0 over the night side
+        planet_flux = (mercury["albedo"] * solar_flux + mercury["ir_flux"]) * day * (C.MERCURY_RADIUS / r)**2
+        planet_pressure = planet_flux / C.SPEED_OF_LIGHT
+
+        #whats going on around us?
+
+        sun_body = attitude.inv().apply(sun_space)    #vector from s/c to sun, in s/c coordinates
+        mercury_body = attitude.inv().apply(mercury_space)
+        B_body = attitude.inv().apply(B_space)
+
+        #shadow check
+        if -mercury_space @ sun_space < shadow_limit:
+            eclipse = True
+        else:
+            eclipse = False
+        #Calulate Torques
+        torques = disturbance_torques(
+            m,
+            sun_dir=sun_body,
+            nadir_dir=mercury_body,
+            B_body=B_body,
+            mu=C.MERCURY_MU,
+            r=r,
+            solar_pressure=0.0 if eclipse else solar_flux / C.SPEED_OF_LIGHT,
+            planet_pressure=planet_pressure,
+        )
+        T = sum(torques.values())
+
+        #save each into a list (before integrating, so everything belongs to the same moment)
+        reference = Rot.from_rotvec([n, 0, 0])                 # perfect nadir pointing at this n
+        n_log.append(n)
+        t_log.append(t)
+        torque_log.append(torques)
+        T_log.append(T)
+        error_log.append((reference.inv() * attitude).as_rotvec())
+        attitude_log.append(attitude.as_euler("XYZ"))
+        rate_log.append(dattitude)
+        eclipse_log.append(eclipse)
+        day_log.append(day)
+
+        #Compute angular acceleration
+        ddattitude = np.linalg.solve(inertia, T - np.cross(dattitude, inertia @ dattitude))
+
+        #Integrate into angular velocity
+        dattitude = dattitude + ddattitude * dt
+
+        #Integrate into Angular Position
+        attitude = attitude * Rot.from_rotvec(dattitude * dt)
+
+
+        #Timestep
+        t = t + dt    
     
-    #Determin orbit position from the circular orbit equation
-    n = dn * t
-    #we are turning around mercury so:
-    mercury_space = np.array([0.0, -np.sin(n), np.cos(n)]) # where do we need to point in space coordinates to point to mercury
-    B_space = B0 * np.array([0.0, 1 - 3 * np.sin(n)**2, 3 * np.sin(n) * np.cos(n)]) # where does the magnetic field point, from satellites POV.
-    day = max(0.0, -mercury_space @ sun_space)   # 1 above the subsolar point, 0 over the night side
-    planet_flux = (mercury["albedo"] * solar_flux + mercury["ir_flux"]) * day * (C.MERCURY_RADIUS / r)**2
-    planet_pressure = planet_flux / C.SPEED_OF_LIGHT
-
-    #whats going on around us?
-
-    sun_body = attitude.inv().apply(sun_space)    #vector from s/c to sun, in s/c coordinates
-    mercury_body = attitude.inv().apply(mercury_space)
-    B_body = attitude.inv().apply(B_space)
-
-    #shadow check
-    if -mercury_space @ sun_space < shadow_limit:
-        eclipse = True
-    else:
-        eclipse = False
-    #Calulate Torques
-    torques = disturbance_torques(
-        m,
-        sun_dir=sun_body,
-        nadir_dir=mercury_body,
-        B_body=B_body,
-        mu=C.MERCURY_MU,
-        r=r,
-        solar_pressure=0.0 if eclipse else solar_flux / C.SPEED_OF_LIGHT,
-        planet_pressure=planet_pressure,
-    )
-    T = sum(torques.values())
-
-    #save each into a list (before integrating, so everything belongs to the same moment)
-    reference = Rot.from_rotvec([n, 0, 0])                 # perfect nadir pointing at this n
-    n_log.append(n)
-    t_log.append(t)
-    torque_log.append(torques)
-    T_log.append(T)
-    error_log.append((reference.inv() * attitude).as_rotvec())
-    attitude_log.append(attitude.as_euler("XYZ"))
-    rate_log.append(dattitude)
-    eclipse_log.append(eclipse)
-    day_log.append(day)
-
-    #Compute angular acceleration
-    ddattitude = np.linalg.solve(inertia, T - np.cross(dattitude, inertia @ dattitude))
-
-    #Integrate into angular velocity
-    dattitude = dattitude + ddattitude * dt
-
-    #Integrate into Angular Position
-    attitude = attitude * Rot.from_rotvec(dattitude * dt)
 
 
-    #Timestep
-    t = t + dt
+
+if control == False:
+    while n < 3 * 2* np.pi: # we do 3 orbits here to illustrate. I will do simple FE and then we'll see.
+        
+        #Determin orbit position from the circular orbit equation
+        n = dn * t
+        #we are turning around mercury so:
+        mercury_space = np.array([0.0, -np.sin(n), np.cos(n)]) # where do we need to point in space coordinates to point to mercury
+        B_space = B0 * np.array([0.0, 1 - 3 * np.sin(n)**2, 3 * np.sin(n) * np.cos(n)]) # where does the magnetic field point, from satellites POV.
+        day = max(0.0, -mercury_space @ sun_space)   # 1 above the subsolar point, 0 over the night side
+        planet_flux = (mercury["albedo"] * solar_flux + mercury["ir_flux"]) * day * (C.MERCURY_RADIUS / r)**2
+        planet_pressure = planet_flux / C.SPEED_OF_LIGHT
+
+        #whats going on around us?
+
+        sun_body = attitude.inv().apply(sun_space)    #vector from s/c to sun, in s/c coordinates
+        mercury_body = attitude.inv().apply(mercury_space)
+        B_body = attitude.inv().apply(B_space)
+
+        #shadow check
+        if -mercury_space @ sun_space < shadow_limit:
+            eclipse = True
+        else:
+            eclipse = False
+        #Calulate Torques
+        torques = disturbance_torques(
+            m,
+            sun_dir=sun_body,
+            nadir_dir=mercury_body,
+            B_body=B_body,
+            mu=C.MERCURY_MU,
+            r=r,
+            solar_pressure=0.0 if eclipse else solar_flux / C.SPEED_OF_LIGHT,
+            planet_pressure=planet_pressure,
+        )
+        T = sum(torques.values())
+
+        #save each into a list (before integrating, so everything belongs to the same moment)
+        reference = Rot.from_rotvec([n, 0, 0])                 # perfect nadir pointing at this n
+        n_log.append(n)
+        t_log.append(t)
+        torque_log.append(torques)
+        T_log.append(T)
+        error_log.append((reference.inv() * attitude).as_rotvec())
+        attitude_log.append(attitude.as_euler("XYZ"))
+        rate_log.append(dattitude)
+        eclipse_log.append(eclipse)
+        day_log.append(day)
+
+        #Compute angular acceleration
+        ddattitude = np.linalg.solve(inertia, T - np.cross(dattitude, inertia @ dattitude))
+
+        #Integrate into angular velocity
+        dattitude = dattitude + ddattitude * dt
+
+        #Integrate into Angular Position
+        attitude = attitude * Rot.from_rotvec(dattitude * dt)
+
+
+        #Timestep
+        t = t + dt
 
 
 # logs -> arrays for plotting, one row per timestep
