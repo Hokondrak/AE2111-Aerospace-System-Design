@@ -337,6 +337,6 @@ if __name__ == "__main__":
     for name, make in [("disturbance_torques", plot_torques), ("attitude_response", plot_response),
                        ("orbit_map", plot_orbit_map)]:
         fig = make()
-        for ext in ("png", "pdf"):      # PDF is vector, sharper in a report
+        for ext in ("png", "pdf"):      
             fig.savefig(os.path.join(OUT_DIR, f"{name}.{ext}"), bbox_inches="tight", pad_inches=0.05)
     plt.show()
