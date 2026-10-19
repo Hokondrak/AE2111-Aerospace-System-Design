@@ -4,6 +4,8 @@ to figures/, as PNG and PDF, without titles (the report captions carry those):
   1. disturbance_torques     - each torque source around the orbit (log scale)
   2. attitude_response.png    - total torque, accumulated momentum and pointing error per axis
   3. orbit_map.png            - total torque painted onto the first orbit
+With control = True in attitude_sim.py it instead saves
+  4. pointing_control         - pointing error, rate error and PID torque over three orbits
 """
 
 import os
@@ -80,10 +82,24 @@ z_axis = error_rot.apply([0.0, 0.0, 1.0])                                  # bod
 off_nadir = np.degrees(np.arccos(np.clip(z_axis[:, 2], -1, 1)))           # how far Z is off Mercury
 momentum = np.cumsum(sim.T_log, axis=0) * sim.dt                           # [N m s]
 
-# eclipse spans as (start, end) in orbits
-_e = np.r_[False, sim.eclipse_log.astype(bool), False].astype(int)
-_starts, _ends = np.flatnonzero(np.diff(_e) == 1), np.flatnonzero(np.diff(_e) == -1) - 1
-ECLIPSES = [(orbit[a], orbit[b]) for a, b in zip(_starts, _ends)]
+
+
+def spans(mask):
+    """(start, end) in orbits of every run where mask is True."""
+    m = np.r_[False, np.asarray(mask, bool), False].astype(int)
+    starts, ends = np.flatnonzero(np.diff(m) == 1), np.flatnonzero(np.diff(m) == -1) - 1
+    return [(orbit[a], orbit[b]) for a, b in zip(starts, ends)]
+
+
+ECLIPSES = spans(sim.eclipse_log)
+
+# PID logs, only filled when the sim ran with control = True
+if sim.control:
+    ARCSEC = np.degrees(1) * 3600                                          # [arcsec/rad]
+    err_arcsec = sim.error_log * ARCSEC                                    # error per axis [arcsec]
+    rate_err = np.linalg.norm(sim.derror_log, axis=1) * ARCSEC             # stability [arcsec/s]
+    LIMIT_ARCSEC = sim.POINTING_LIMIT * ARCSEC
+    RATE_LIMIT_ARCSEC = sim.RATE_LIMIT * ARCSEC
 
 
 # ---------- Helpers ----------
@@ -150,6 +166,13 @@ def tag(ax, letter, xy, xytext=None):
                 bbox=dict(boxstyle="round,pad=0.15", fc=SURFACE, ec="none", alpha=0.85),
                 arrowprops=None if xytext is None else
                 dict(arrowstyle="-", color=MUTED, lw=0.5, shrinkA=0, shrinkB=2))
+
+
+def limit_line(ax, y, text, ls="-"):
+    """Thin horizontal reference line, labelled just above it at the left edge."""
+    ax.axhline(y, color=BASELINE, lw=0.6, ls=ls, zorder=1)
+    ax.text(0.005, y, text, transform=blended_transform_factory(ax.transAxes, ax.transData),
+            ha="left", va="bottom", fontsize=7.5, color=INK_2, zorder=4)
 
 
 # ---------- 1. Disturbance torques by source ----------
@@ -324,11 +347,66 @@ def plot_orbit_map():
     return fig
 
 
+# ---------- 4. Pointing under PID control ----------
+def plot_control():
+    fig, axs = plt.subplots(3, 1, figsize=(TEXT_WIDTH, 5.6), sharex=True,
+                            gridspec_kw=dict(hspace=0.55, left=0.1, right=0.98, top=0.9, bottom=0.09))
+
+    # accuracy: error per axis, the 0.1 deg requirement is far off the top of this scale
+    ax = axs[0]
+    shade_eclipses(ax)
+    ax.axhline(0, color=BASELINE, lw=0.6, zorder=1)
+    for k in range(3):
+        ax.plot(orbit, err_arcsec[:, k], color=SERIES[k], lw=LW, label=AXES[k], zorder=3)
+    peak = np.abs(err_arcsec).max()
+    ax.set_title(f"Attitude error from nadir pointing  (max {peak:.1f}″, requirement {LIMIT_ARCSEC:.0f}″)",
+                 loc="left", fontsize=8.5, fontweight="bold", pad=5)
+    ax.set_ylabel("[arcsec]")
+    orbit_axis(ax, label=False)
+
+    # stability: how fast the pointing wanders
+    ax = axs[1]
+    shade_eclipses(ax)
+    limit_line(ax, RATE_LIMIT_ARCSEC, f"Requirement {RATE_LIMIT_ARCSEC:.1f}″/s")
+    ax.plot(orbit, rate_err, color=INK, lw=LW, zorder=3)
+    i = np.argmax(rate_err)
+    ax.plot(orbit[i], rate_err[i], "o", ms=4.5, color=INK, mec=SURFACE, mew=1.0, zorder=6)
+    entry = min(abs(orbit[i] - a) for a, _ in ECLIPSES) < min(abs(orbit[i] - b) for _, b in ECLIPSES)
+    ax.annotate(f"max {rate_err[i]:.2f}″/s, eclipse {'entry' if entry else 'exit'}: Sun pressure switches",
+                xy=(orbit[i], rate_err[i]), xytext=(orbit[i] + 0.35, 0.25), fontsize=7.5, color=INK_2,
+                va="center", ha="left",
+                arrowprops=dict(arrowstyle="-", color=BASELINE, lw=0.5, shrinkA=2, shrinkB=4))
+    ax.set_ylim(0, 1.15 * RATE_LIMIT_ARCSEC)
+    ax.yaxis.set_major_locator(MultipleLocator(0.1))
+    ax.set_title("Rate error, body rate minus orbit-following rate", loc="left", fontsize=8.5,
+                 fontweight="bold", pad=5)
+    ax.set_ylabel("[arcsec/s]")
+    orbit_axis(ax, label=False)
+
+    # what the PID asks of the wheels
+    ax = axs[2]
+    shade_eclipses(ax)
+    Tc = sim.Tc_log * 1e6
+    ax.axhline(0, color=BASELINE, lw=0.6, zorder=1)
+    for k in range(3):
+        ax.plot(orbit, Tc[:, k], color=SERIES[k], lw=LW, zorder=3)
+    ax.set_title("PID correction torque", loc="left", fontsize=8.5, fontweight="bold", pad=5)
+    ax.set_ylabel("[µN·m]")
+    orbit_axis(ax)
+
+    handles, labels = axs[0].get_legend_handles_labels()
+    fig.legend(handles + [ECLIPSE_KEY], labels + ["Eclipse"], loc="upper left",
+               bbox_to_anchor=(0.1, 1.0), ncol=4, handlelength=1.6, columnspacing=1.8)
+    return fig
+
+
 if __name__ == "__main__":
     os.makedirs(OUT_DIR, exist_ok=True)
-    for name, make in [("disturbance_torques", plot_torques), ("attitude_response", plot_response),
-                       ("orbit_map", plot_orbit_map)]:
+    figures = [("pointing_control", plot_control)] if sim.control else [
+        ("disturbance_torques", plot_torques), ("attitude_response", plot_response),
+        ("orbit_map", plot_orbit_map)]
+    for name, make in figures:
         fig = make()
-        for ext in ("png", "pdf"):      # PDF is vector, sharper in a report
+        for ext in ("png", "pdf"):      
             fig.savefig(os.path.join(OUT_DIR, f"{name}.{ext}"), bbox_inches="tight", pad_inches=0.05)
     plt.show()

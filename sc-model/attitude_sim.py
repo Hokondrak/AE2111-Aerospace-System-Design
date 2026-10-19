@@ -26,7 +26,7 @@ from scipy.spatial.transform import Rotation as Rot
 #use euler first, then do rk6.
 
 #plot
-
+control = True # True = controls active, False = controls inactive:
 
 # 3. Torques from each of the sources, all as [Tx, Ty, Tz] [Nm] in body axes.
 # Every direction is a unit vector in BODY axes, 
@@ -65,6 +65,8 @@ attitude_log = []   # attitude vs the stars [phi, beta, gamma] [rad]
 rate_log = []       # body rates dattitude [rad/s]
 eclipse_log = []    # True while in Mercury's shadow
 day_log = []        # how lit the ground below is, 0 (night) to 1 (noon)
+derror_log = []     # rate error vs nadir tracking [rad/s] (control = True only)
+Tc_log = []         # control torque [Tx, Ty, Tz] [Nm] (control = True only)
 
 
 
@@ -93,74 +95,171 @@ attitude = Rot.identity()
 dattitude = np.array([dphi, dbeta, dgamma])
 ddattitude = np.array([ddphi, ddbeta, ddgamma])
 
+# PID pointing control, always on. Switching it off is not an option: with ~0.3 mNm of disturbance
+# on ~500 kg m² the free drift breaks RATE_LIMIT within a few seconds, so the PID has to keep
+# cancelling the disturbance. 
+# 
+# All three closed-loop poles sit at -w_n, (s + w_n)^3, which gives a
+# smooth response without overshoot
+
+POINTING_LIMIT = np.radians(0.1)          # [rad] accuracy requirement: within 0.1 deg of nadir
+RATE_LIMIT = np.radians(0.3 / 3600)       # [rad/s] stability requirement: 0.3 arcsec/s
+T_CONTROL_MAX = 1e-3                      # [Nm] per axis, small correction torque (wheels can do 0.2)
+w_n = 0.15                                # [rad/s] closed-loop bandwidth, well below 1/dt for FE
+Kp = np.array([62.2232, 69.9133, 33.324])   # [Nm/rad]
+Kd = np.array([414.821, 466.089, 222.16])   # [Nm s/rad]
+Ki = np.array([3.11116, 3.49567, 1.6662])   # [Nm/(rad s)]
+
+def pid_torque(e, de, e_int):
+    """Correction torque [Nm] from the error e [rad], its rate de [rad/s] and its integral e_int [rad s]."""
+    return np.clip(-(Kp * e + Kd * de + Ki * e_int), -T_CONTROL_MAX, T_CONTROL_MAX)
+
+e_int = np.zeros(3)           # integral of the error [rad s]
 
 #also precomputed from geometry, for simplicity reasons:
 #sun is active between angles (sun is to the right, s/c starts on the left.), we assume 2D ish sim for what its worth
 
 
-while n < 3 * 2* np.pi: # we do 3 orbits here to illustrate. I will do simple FE and then we'll see.
-    
-    #Determin orbit position from the circular orbit equation
-    n = dn * t
-    #we are turning around mercury so:
-    mercury_space = np.array([0.0, -np.sin(n), np.cos(n)]) # where do we need to point in space coordinates to point to mercury
-    B_space = B0 * np.array([0.0, 1 - 3 * np.sin(n)**2, 3 * np.sin(n) * np.cos(n)]) # where does the magnetic field point, from satellites POV.
-    day = max(0.0, -mercury_space @ sun_space)   # 1 above the subsolar point, 0 over the night side
-    planet_flux = (mercury["albedo"] * solar_flux + mercury["ir_flux"]) * day * (C.MERCURY_RADIUS / r)**2
-    planet_pressure = planet_flux / C.SPEED_OF_LIGHT
+if control == True:
+    while n < 3 * 2* np.pi: # we do 3 orbits here to illustrate. I will do simple FE and then we'll see.
+        
+        #Determin orbit position from the circular orbit equation
+        n = dn * t
+        #we are turning around mercury so:
+        mercury_space = np.array([0.0, -np.sin(n), np.cos(n)]) # where do we need to point in space coordinates to point to mercury
+        B_space = B0 * np.array([0.0, 1 - 3 * np.sin(n)**2, 3 * np.sin(n) * np.cos(n)]) # where does the magnetic field point, from satellites POV.
+        day = max(0.0, -mercury_space @ sun_space)   # 1 above the subsolar point, 0 over the night side
+        planet_flux = (mercury["albedo"] * solar_flux + mercury["ir_flux"]) * day * (C.MERCURY_RADIUS / r)**2
+        planet_pressure = planet_flux / C.SPEED_OF_LIGHT
 
-    #whats going on around us?
+        #whats going on around us?
 
-    sun_body = attitude.inv().apply(sun_space)    #vector from s/c to sun, in s/c coordinates
-    mercury_body = attitude.inv().apply(mercury_space)
-    B_body = attitude.inv().apply(B_space)
+        sun_body = attitude.inv().apply(sun_space)    #vector from s/c to sun, in s/c coordinates
+        mercury_body = attitude.inv().apply(mercury_space)
+        B_body = attitude.inv().apply(B_space)
 
-    #shadow check
-    if -mercury_space @ sun_space < shadow_limit:
-        eclipse = True
-    else:
-        eclipse = False
-    #Calulate Torques
-    torques = disturbance_torques(
-        m,
-        sun_dir=sun_body,
-        nadir_dir=mercury_body,
-        B_body=B_body,
-        mu=C.MERCURY_MU,
-        r=r,
-        solar_pressure=0.0 if eclipse else solar_flux / C.SPEED_OF_LIGHT,
-        planet_pressure=planet_pressure,
-    )
-    T = sum(torques.values())
+        #shadow check
+        if -mercury_space @ sun_space < shadow_limit:
+            eclipse = True
+        else:
+            eclipse = False
+        #Calulate Torques
+        torques = disturbance_torques(
+            m,
+            sun_dir=sun_body,
+            nadir_dir=mercury_body,
+            B_body=B_body,
+            mu=C.MERCURY_MU,
+            r=r,
+            solar_pressure=0.0 if eclipse else solar_flux / C.SPEED_OF_LIGHT,
+            planet_pressure=planet_pressure,
+        )
+        T = sum(torques.values())
 
-    #save each into a list (before integrating, so everything belongs to the same moment)
-    reference = Rot.from_rotvec([n, 0, 0])                 # perfect nadir pointing at this n
-    n_log.append(n)
-    t_log.append(t)
-    torque_log.append(torques)
-    T_log.append(T)
-    error_log.append((reference.inv() * attitude).as_rotvec())
-    attitude_log.append(attitude.as_euler("XYZ"))
-    rate_log.append(dattitude)
-    eclipse_log.append(eclipse)
-    day_log.append(day)
+        #Pointing error vs nadir, and how fast it changes
+        reference = Rot.from_rotvec([n, 0, 0])                 # perfect nadir pointing at this n
+        error = reference.inv() * attitude
+        e = error.as_rotvec()                                  # [rad] small angles per body axis
+        de = dattitude - error.inv().apply([dn, 0.0, 0.0])     # [rad/s] body rate minus the orbit-following rate
 
-    #Compute angular acceleration
-    ddattitude = np.linalg.solve(inertia, T - np.cross(dattitude, inertia @ dattitude))
+        #Correction torque
+        e_int = e_int + e * dt
+        T_control = pid_torque(e, de, e_int)
 
-    #Integrate into angular velocity
-    dattitude = dattitude + ddattitude * dt
+        #save each into a list (before integrating, so everything belongs to the same moment)
+        n_log.append(n)
+        t_log.append(t)
+        torque_log.append(torques)
+        T_log.append(T)
+        error_log.append(e)
+        attitude_log.append(attitude.as_euler("XYZ"))
+        rate_log.append(dattitude)
+        eclipse_log.append(eclipse)
+        day_log.append(day)
+        derror_log.append(de)
+        Tc_log.append(T_control)
 
-    #Integrate into Angular Position
-    attitude = attitude * Rot.from_rotvec(dattitude * dt)
+        #Compute angular acceleration
+        ddattitude = np.linalg.solve(inertia, T + T_control - np.cross(dattitude, inertia @ dattitude))
+
+        #Integrate into angular velocity
+        dattitude = dattitude + ddattitude * dt
+
+        #Integrate into Angular Position
+        attitude = attitude * Rot.from_rotvec(dattitude * dt)
 
 
-    #Timestep
-    t = t + dt
+        #Timestep
+        t = t + dt
+
+
+
+
+if control == False:
+    while n < 3 * 2* np.pi: # we do 3 orbits here to illustrate. I will do simple FE and then we'll see.
+        
+        #Determin orbit position from the circular orbit equation
+        n = dn * t
+        #we are turning around mercury so:
+        mercury_space = np.array([0.0, -np.sin(n), np.cos(n)]) # where do we need to point in space coordinates to point to mercury
+        B_space = B0 * np.array([0.0, 1 - 3 * np.sin(n)**2, 3 * np.sin(n) * np.cos(n)]) # where does the magnetic field point, from satellites POV.
+        day = max(0.0, -mercury_space @ sun_space)   # 1 above the subsolar point, 0 over the night side
+        planet_flux = (mercury["albedo"] * solar_flux + mercury["ir_flux"]) * day * (C.MERCURY_RADIUS / r)**2
+        planet_pressure = planet_flux / C.SPEED_OF_LIGHT
+
+        #whats going on around us?
+
+        sun_body = attitude.inv().apply(sun_space)    #vector from s/c to sun, in s/c coordinates
+        mercury_body = attitude.inv().apply(mercury_space)
+        B_body = attitude.inv().apply(B_space)
+
+        #shadow check
+        if -mercury_space @ sun_space < shadow_limit:
+            eclipse = True
+        else:
+            eclipse = False
+        #Calulate Torques
+        torques = disturbance_torques(
+            m,
+            sun_dir=sun_body,
+            nadir_dir=mercury_body,
+            B_body=B_body,
+            mu=C.MERCURY_MU,
+            r=r,
+            solar_pressure=0.0 if eclipse else solar_flux / C.SPEED_OF_LIGHT,
+            planet_pressure=planet_pressure,
+        )
+        T = sum(torques.values())
+
+        #save each into a list (before integrating, so everything belongs to the same moment)
+        reference = Rot.from_rotvec([n, 0, 0])                 # perfect nadir pointing at this n
+        n_log.append(n)
+        t_log.append(t)
+        torque_log.append(torques)
+        T_log.append(T)
+        error_log.append((reference.inv() * attitude).as_rotvec())
+        attitude_log.append(attitude.as_euler("XYZ"))
+        rate_log.append(dattitude)
+        eclipse_log.append(eclipse)
+        day_log.append(day)
+
+        #Compute angular acceleration
+        ddattitude = np.linalg.solve(inertia, T - np.cross(dattitude, inertia @ dattitude))
+
+        #Integrate into angular velocity
+        dattitude = dattitude + ddattitude * dt
+
+        #Integrate into Angular Position
+        attitude = attitude * Rot.from_rotvec(dattitude * dt)
+
+
+        #Timestep
+        t = t + dt
 
 
 # logs -> arrays for plotting, one row per timestep
 n_log, t_log, T_log, error_log, attitude_log, rate_log, eclipse_log, day_log = map(
     np.array, (n_log, t_log, T_log, error_log, attitude_log, rate_log, eclipse_log, day_log))
+derror_log, Tc_log = map(np.array, (derror_log, Tc_log))
 torque_arrays = {name: np.array([d[name] for d in torque_log]) for name in torque_log[0]}  # (steps, 3) per source
     
