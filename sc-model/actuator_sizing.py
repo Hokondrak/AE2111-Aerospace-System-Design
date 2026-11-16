@@ -121,6 +121,8 @@ thrusts = np.array([
 #getting the cg and inertia, originall version
 cg_original, inertia_original = mass_properties(mbol)
 cg_original_endoflife, inertia_original = mass_properties(meol)
+print(cg_original)
+print(cg_original_endoflife)
 
 
 
@@ -222,7 +224,7 @@ N_RCS_THRUSTERS    = 8
 RCS_THRUSTER_RADIUS = 30 * mm               # "R30 x 8" in FRONT view        # CHECK
 
 #part 2
-RW_POS = np.array([0, BODY_RADIUS, 0.727*2])
+RW_POS = np.array([0.03, 0.018, 3.339])
 RW_MASS = 24.0 * 4
 
 # ---------------------------------------------------------------------------
