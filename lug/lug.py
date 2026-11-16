@@ -1,5 +1,5 @@
 import np
-
+import pyplot.matplotlib as plt
 
 ###Inputs
 #Force
@@ -21,7 +21,7 @@ I = None
 #Geometry Coeffs.
 k_e = None
 
-length = np.arrange(0,l,1)
+length = np.arrange(0,l,0.01)
 
 ###
 
