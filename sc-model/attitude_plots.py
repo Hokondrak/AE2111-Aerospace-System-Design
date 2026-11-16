@@ -1,11 +1,17 @@
 """
-Plots for attitude_sim.py. Running this file runs the sim (on import) and saves three figures
-to figures/, as PNG and PDF, without titles (the report captions carry those):
-  1. disturbance_torques     - each torque source around the orbit (log scale)
-  2. attitude_response.png    - total torque, accumulated momentum and pointing error per axis
-  3. orbit_map.png            - total torque painted onto the first orbit
-With control = True in attitude_sim.py it instead saves
-  4. pointing_control         - pointing error, rate error and PID torque over three orbits
+Plots for attitude_sim.py. Running this file runs the sim (on import) and saves one figure per
+plot to figures/, as PNG and PDF. With control = False in attitude_sim.py:
+  disturbance_torques      - each torque source around the orbit (log scale)
+  response_torque          - total disturbance torque per axis
+  response_momentum        - accumulated momentum per axis
+  response_rate            - angular velocity per body axis
+  response_error           - deviation from the nadir-tracking attitude per axis
+  response_off_nadir       - angle between the Z axis and Mercury
+  orbit_map                - total torque painted onto the first orbit
+With control = True:
+  control_error            - attitude error per axis under PID control
+  control_rate             - rate error vs the 0.3 arcsec/s requirement
+  control_torque           - PID correction torque per axis
 """
 
 import os
@@ -81,6 +87,7 @@ error_deg = np.degrees(np.unwrap(error_rot.as_euler("XYZ"), axis=0))      # per 
 z_axis = error_rot.apply([0.0, 0.0, 1.0])                                  # body Z in the nadir frame
 off_nadir = np.degrees(np.arccos(np.clip(z_axis[:, 2], -1, 1)))           # how far Z is off Mercury
 momentum = np.cumsum(sim.T_log, axis=0) * sim.dt                           # [N m s]
+rate_deg = np.degrees(sim.rate_log)                                        # body rates [deg/s]
 
 
 
@@ -175,6 +182,40 @@ def limit_line(ax, y, text, ls="-"):
             ha="left", va="bottom", fontsize=7.5, color=INK_2, zorder=4)
 
 
+def single(height=2.4, right=0.98):
+    """One panel per figure, legend row on top."""
+    fig, ax = plt.subplots(figsize=(TEXT_WIDTH, height))
+    fig.subplots_adjust(left=0.1, right=right, top=0.78, bottom=0.17)
+    return fig, ax
+
+
+def panel_title(ax, text):
+    ax.set_title(text, loc="left", fontsize=8.5, fontweight="bold", pad=5)
+
+
+def top_legend(fig, ax):
+    """The panel's series plus the eclipse swatch, in one row above the plot."""
+    handles, labels = ax.get_legend_handles_labels()
+    handles, labels = handles + [ECLIPSE_KEY], labels + ["Eclipse"]
+    fig.legend(handles, labels, loc="upper left", bbox_to_anchor=(0.1, 1.0), ncol=len(handles),
+               handlelength=1.6, columnspacing=1.8)
+
+
+def axes_plot(data, title, unit, fmt):
+    """Per-axis time history with end labels: the shared layout of the response plots."""
+    fig, ax = single(right=0.84)
+    shade_eclipses(ax)
+    ax.axhline(0, color=BASELINE, lw=0.6, zorder=1)
+    for k in range(3):
+        ax.plot(orbit, data[:, k], color=SERIES[k], lw=LW, label=AXES[k], zorder=3)
+    panel_title(ax, title)
+    ax.set_ylabel(unit)
+    orbit_axis(ax)
+    end_labels(ax, data[-1], [f"{AXES[k].split()[0]}  {fmt(data[-1, k])}" for k in range(3)], SERIES[:3])
+    top_legend(fig, ax)
+    return fig, ax
+
+
 # ---------- 1. Disturbance torques by source ----------
 def plot_torques():
     fig, ax = plt.subplots(figsize=(TEXT_WIDTH, 3.1))
@@ -227,56 +268,55 @@ def plot_torques():
     return fig
 
 
-# ---------- 2. Attitude response ----------
-def plot_response():
-    fig, axs = plt.subplots(4, 1, figsize=(TEXT_WIDTH, 6.9), sharex=True,
-                            gridspec_kw=dict(hspace=0.55, left=0.1, right=0.84, top=0.92, bottom=0.07))
-    i10 = np.argmax(off_nadir > 10)
+# ---------- 2. Attitude response (uncontrolled), one figure per quantity ----------
+def plot_response_torque():
+    fig, _ = axes_plot(sim.T_log * 1e6, "Total disturbance torque", "[µN·m]", lambda v: f"{v:+.0f}")
+    return fig
 
-    panels = [
-        (sim.T_log * 1e6, "Total disturbance torque", "[µN·m]", lambda v: f"{v:+.0f}"),
-        (momentum, "Accumulated momentum", "[N·m·s]",
-         lambda v: f"{v:+.2f}"),
-        (error_deg, "Deviation from the nadir-tracking attitude", "[°]", lambda v: f"{v:+.0f}°"),
-    ]
-    for ax, (data, title, unit, fmt) in zip(axs, panels):
-        shade_eclipses(ax)
-        ax.axhline(0, color=BASELINE, lw=0.6, zorder=1)
-        for k in range(3):
-            ax.plot(orbit, data[:, k], color=SERIES[k], lw=LW, label=AXES[k], zorder=3)
-        ax.set_title(title, loc="left", fontsize=8.5, fontweight="bold", pad=5)
-        ax.set_ylabel(unit)
-        orbit_axis(ax, label=False)
-        end_labels(ax, data[-1], [f"{AXES[k].split()[0]}  {fmt(data[-1, k])}" for k in range(3)], SERIES[:3])
-    axs[2].yaxis.set_major_locator(MultipleLocator(360))
 
+def plot_response_momentum():
+    fig, _ = axes_plot(momentum, "Accumulated momentum", "[N·m·s]", lambda v: f"{v:+.2f}")
+    return fig
+
+
+def plot_response_rate():
+    fig, ax = axes_plot(rate_deg, "Angular velocity, body axes", "[°/s]", lambda v: f"{v:+.3f}")
+    # the rate the spacecraft should have: following the orbit about X
+    ax.axhline(np.degrees(sim.dn), color=BASELINE, lw=0.6, zorder=1)
+    ax.text(0.005, np.degrees(sim.dn), "orbital rate", va="bottom", ha="left", fontsize=7, color=MUTED,
+            transform=blended_transform_factory(ax.transAxes, ax.transData))
+    return fig
+
+
+def plot_response_error():
+    fig, ax = axes_plot(error_deg, "Deviation from the nadir-tracking attitude", "[°]", lambda v: f"{v:+.0f}°")
+    ax.yaxis.set_major_locator(MultipleLocator(360))
+    i = at(1.5)
+    tag(ax, "i", (orbit[i], error_deg[i, 2]), (orbit[i] + 0.12, error_deg[i, 2] - 220))  # yaw spin-up
+    return fig
+
+
+def plot_response_off_nadir():
     # off-nadir angle: the single number that matters for pointing
-    ax = axs[3]
+    fig, ax = single()
+    i10 = np.argmax(off_nadir > 10)
     shade_eclipses(ax)
     ax.axhline(10, color=BASELINE, lw=0.6, zorder=1)
     ax.text(0.005, 10, "10°", transform=blended_transform_factory(ax.transAxes, ax.transData),
             ha="left", va="bottom", fontsize=7, color=MUTED)
-    ax.plot(orbit, off_nadir, color=INK, lw=LW, zorder=3)
+    ax.plot(orbit, off_nadir, color=INK, lw=LW, zorder=3, label="Off-nadir angle")
     ax.plot(orbit[i10], 10, "o", ms=5, color=INK, mec=SURFACE, mew=1.2, zorder=6)
     ax.annotate(f"[j]  10° off after {orbit[i10] * period_min:.0f} min", xy=(orbit[i10], 10),
                 xytext=(0.06, 125), fontsize=7.5, color=INK_2, va="center", ha="left",
                 arrowprops=dict(arrowstyle="-", color=BASELINE, lw=0.5, shrinkA=2, shrinkB=5))
     ax.set_ylim(0, 180)
     ax.yaxis.set_major_locator(MultipleLocator(45))
-    ax.set_title("Angle between the Z axis and Mercury", loc="left", fontsize=8.5,
-                 fontweight="bold", pad=5)
+    panel_title(ax, "Angle between the Z axis and Mercury")
     ax.set_ylabel("[°]")
     orbit_axis(ax)
-
-    # reference labels for the report text
-    i = at(1.5)
-    tag(axs[2], "i", (orbit[i], error_deg[i, 2]), (orbit[i] + 0.12, error_deg[i, 2] - 220))  # yaw spin-up
     i = low(off_nadir, 0.85, 1.1)
-    tag(axs[3], "k", (orbit[i], off_nadir[i]), (orbit[i], 45))                  # swings back near nadir
-
-    handles, labels = axs[0].get_legend_handles_labels()
-    fig.legend(handles + [ECLIPSE_KEY], labels + ["Eclipse"], loc="upper left",
-               bbox_to_anchor=(0.1, 1.0), ncol=4, handlelength=1.6, columnspacing=1.8)
+    tag(ax, "k", (orbit[i], off_nadir[i]), (orbit[i], 45))                      # swings back near nadir
+    top_legend(fig, ax)
     return fig
 
 
@@ -347,28 +387,28 @@ def plot_orbit_map():
     return fig
 
 
-# ---------- 4. Pointing under PID control ----------
-def plot_control():
-    fig, axs = plt.subplots(3, 1, figsize=(TEXT_WIDTH, 5.6), sharex=True,
-                            gridspec_kw=dict(hspace=0.55, left=0.1, right=0.98, top=0.9, bottom=0.09))
-
+# ---------- 4. Pointing under PID control, one figure per quantity ----------
+def plot_control_error():
     # accuracy: error per axis, the 0.1 deg requirement is far off the top of this scale
-    ax = axs[0]
+    fig, ax = single()
     shade_eclipses(ax)
     ax.axhline(0, color=BASELINE, lw=0.6, zorder=1)
     for k in range(3):
         ax.plot(orbit, err_arcsec[:, k], color=SERIES[k], lw=LW, label=AXES[k], zorder=3)
     peak = np.abs(err_arcsec).max()
-    ax.set_title(f"Attitude error from nadir pointing  (max {peak:.1f}″, requirement {LIMIT_ARCSEC:.0f}″)",
-                 loc="left", fontsize=8.5, fontweight="bold", pad=5)
+    panel_title(ax, f"Attitude error from nadir pointing  (max {peak:.1f}″, requirement {LIMIT_ARCSEC:.0f}″)")
     ax.set_ylabel("[arcsec]")
-    orbit_axis(ax, label=False)
+    orbit_axis(ax)
+    top_legend(fig, ax)
+    return fig
 
+
+def plot_control_rate():
     # stability: how fast the pointing wanders
-    ax = axs[1]
+    fig, ax = single()
     shade_eclipses(ax)
     limit_line(ax, RATE_LIMIT_ARCSEC, f"Requirement {RATE_LIMIT_ARCSEC:.1f}″/s")
-    ax.plot(orbit, rate_err, color=INK, lw=LW, zorder=3)
+    ax.plot(orbit, rate_err, color=INK, lw=LW, zorder=3, label="Rate error")
     i = np.argmax(rate_err)
     ax.plot(orbit[i], rate_err[i], "o", ms=4.5, color=INK, mec=SURFACE, mew=1.0, zorder=6)
     entry = min(abs(orbit[i] - a) for a, _ in ECLIPSES) < min(abs(orbit[i] - b) for _, b in ECLIPSES)
@@ -378,35 +418,40 @@ def plot_control():
                 arrowprops=dict(arrowstyle="-", color=BASELINE, lw=0.5, shrinkA=2, shrinkB=4))
     ax.set_ylim(0, 1.15 * RATE_LIMIT_ARCSEC)
     ax.yaxis.set_major_locator(MultipleLocator(0.1))
-    ax.set_title("Rate error, body rate minus orbit-following rate", loc="left", fontsize=8.5,
-                 fontweight="bold", pad=5)
+    panel_title(ax, "Rate error, body rate minus orbit-following rate")
     ax.set_ylabel("[arcsec/s]")
-    orbit_axis(ax, label=False)
+    orbit_axis(ax)
+    top_legend(fig, ax)
+    return fig
 
+
+def plot_control_torque():
     # what the PID asks of the wheels
-    ax = axs[2]
+    fig, ax = single()
     shade_eclipses(ax)
     Tc = sim.Tc_log * 1e6
     ax.axhline(0, color=BASELINE, lw=0.6, zorder=1)
     for k in range(3):
-        ax.plot(orbit, Tc[:, k], color=SERIES[k], lw=LW, zorder=3)
-    ax.set_title("PID correction torque", loc="left", fontsize=8.5, fontweight="bold", pad=5)
+        ax.plot(orbit, Tc[:, k], color=SERIES[k], lw=LW, label=AXES[k], zorder=3)
+    panel_title(ax, "PID correction torque")
     ax.set_ylabel("[µN·m]")
     orbit_axis(ax)
-
-    handles, labels = axs[0].get_legend_handles_labels()
-    fig.legend(handles + [ECLIPSE_KEY], labels + ["Eclipse"], loc="upper left",
-               bbox_to_anchor=(0.1, 1.0), ncol=4, handlelength=1.6, columnspacing=1.8)
+    top_legend(fig, ax)
     return fig
 
 
 if __name__ == "__main__":
     os.makedirs(OUT_DIR, exist_ok=True)
-    figures = [("pointing_control", plot_control)] if sim.control else [
-        ("disturbance_torques", plot_torques), ("attitude_response", plot_response),
-        ("orbit_map", plot_orbit_map)]
+    if sim.control:
+        figures = [("control_error", plot_control_error), ("control_rate", plot_control_rate),
+                   ("control_torque", plot_control_torque)]
+    else:
+        figures = [("disturbance_torques", plot_torques), ("response_torque", plot_response_torque),
+                   ("response_momentum", plot_response_momentum), ("response_rate", plot_response_rate),
+                   ("response_error", plot_response_error), ("response_off_nadir", plot_response_off_nadir),
+                   ("orbit_map", plot_orbit_map)]
     for name, make in figures:
         fig = make()
-        for ext in ("png", "pdf"):      
+        for ext in ("png", "pdf"):
             fig.savefig(os.path.join(OUT_DIR, f"{name}.{ext}"), bbox_inches="tight", pad_inches=0.05)
     plt.show()
