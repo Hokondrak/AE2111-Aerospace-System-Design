@@ -18,5 +18,62 @@ def F_p_Mz(M_z, A_i, r_i, n_f):
 
 
 # This function returns the total force an individual fastener experiences
-def F_pi_total(F_pi, F_p_Mz):
+def F_yi_total(F_pi, F_p_Mz):
     return F_pi + F_p_Mz
+
+
+# This function returns a list in the following format:
+# Input: [[fastener_index, A_i, r_i, F_y, M_z]] , number_of_fasteners
+# [[fastener_index, F_yi_total, F_pi, F_p_Mz_i], ...]
+
+
+def listOfFastenerAndPullThroughForce(fasteners_list, number_of_fasteners):
+    i = 0
+    finalList = []
+    while i < number_of_fasteners:
+        tempList = []
+        tempList.append(i)
+        force_yi_total_i = F_yi_total(
+            F_pi(fasteners_list[i][3], number_of_fasteners),
+            F_p_Mz(
+                fasteners_list[i][4],
+                fasteners_list[i][1],
+                fasteners_list[i][2],
+                number_of_fasteners,
+            ),
+        )
+        tempList.append(force_yi_total_i)
+        F_pi_i = F_pi(fasteners_list[i][3], number_of_fasteners),
+        F_p_Mz_i = F_p_Mz(
+            fasteners_list[i][4],
+            fasteners_list[i][1],
+            fasteners_list[i][2],
+            number_of_fasteners,
+        )
+        tempList.append(F_pi_i)
+        tempList.append(F_p_Mz_i)
+        finalList.append(tempList)
+        i = i + 1
+    return finalList
+
+# input: [[fastener_index, F_yi_total, F_pi, F_p_Mz_i], ...]
+# This function returns the total list with final Values for F_yi_total in human readable format
+
+
+def finalListToString(finalList):
+    finalString = ""
+    for i in (range(len(finalList))):
+        lineString = ""
+        lineString = (
+            f"Fastener_index: {finalList[i][0]} --- Force_yi_total: {finalList[i][1]} --- F_pi: {finalList[i][2]} --- F_Mpz_i: {finalList[i][3]}"
+        )
+        finalString = finalString + lineString + "\n"
+    return finalString
+
+
+#  [[fastener_index, A_i, r_i, F_y, M_z]]
+# Use this for input to get the
+input = [[0, 5, 2, 100, 500], [1, 5, 2, 100, 500], [2, 5, 2, 100, 500]]
+
+print(listOfFastenerAndPullThroughForce(input, len(input)))
+print(finalListToString(listOfFastenerAndPullThroughForce(input, len(input))))
