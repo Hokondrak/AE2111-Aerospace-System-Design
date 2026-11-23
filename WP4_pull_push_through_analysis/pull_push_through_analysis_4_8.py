@@ -43,7 +43,7 @@ def listOfFastenerAndPullThroughForce(fasteners_list, number_of_fasteners):
             ),
         )
         tempList.append(force_yi_total_i)
-        F_pi_i = F_pi(fasteners_list[i][3], number_of_fasteners),
+        F_pi_i = (F_pi(fasteners_list[i][3], number_of_fasteners),)
         F_p_Mz_i = F_p_Mz(
             fasteners_list[i][4],
             fasteners_list[i][1],
@@ -56,24 +56,39 @@ def listOfFastenerAndPullThroughForce(fasteners_list, number_of_fasteners):
         i = i + 1
     return finalList
 
+
 # input: [[fastener_index, F_yi_total, F_pi, F_p_Mz_i], ...]
 # This function returns the total list with final Values for F_yi_total in human readable format
 
 
 def finalListToString(finalList):
     finalString = ""
-    for i in (range(len(finalList))):
+    for i in range(len(finalList)):
         lineString = ""
-        lineString = (
-            f"Fastener_index: {finalList[i][0]} --- Force_yi_total: {finalList[i][1]} --- F_pi: {finalList[i][2]} --- F_Mpz_i: {finalList[i][3]}"
-        )
+        lineString = f"Fastener_index: {finalList[i][0]} --- Force_yi_total: {finalList[i][1]} --- F_pi: {finalList[i][2]} --- F_Mpz_i: {finalList[i][3]}"
         finalString = finalString + lineString + "\n"
     return finalString
 
 
+def whatIsAbsMaxF_yi(finalList):
+    max = 0
+    for i in range(len(finalList)):
+        temp = ((finalList[i][1]) ** 2) ** 0.5
+        if temp >= max:
+            max = temp
+    return max
+
+
 #  [[fastener_index, A_i, r_i, F_y, M_z]]
 # Use this for input to get the
-input = [[0, 5, 2, 100, 500], [1, 5, 2, 100, 500], [2, 5, 2, 100, 500]]
+# Note: A_i cancels out in the formula so you can put any dummy value there
+input = [
+    [0, -1, 3.75 * 10 ** (-3), 88.88, 117.85],
+    [1, -1, 3.75 * 10 ** (-3), 88.88, -117.85],
+]
 
-print(listOfFastenerAndPullThroughForce(input, len(input)))
+# print(listOfFastenerAndPullThroughForce(input, len(input)))
 print(finalListToString(listOfFastenerAndPullThroughForce(input, len(input))))
+
+
+# We could do some plotting maybe.
