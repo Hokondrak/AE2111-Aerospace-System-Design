@@ -27,6 +27,11 @@ rho = 2810    # [kg/m^3] aluminium (7075-T6); only scales the mass, doesn't chan
 SF = 1.5      # safety factor -- placeholder, set to your project's value
 FF = 1.15     # fitting factor (chart notes: additional M.S. of 0.15 for fittings)
 
+#limits (fit / manufacturing) -- placeholders, set to your design's values
+d_bolt_min = 3.2e-3   # [m] smallest hole: clearance hole for an M3 bolt
+gap_min    = 2e-3     # [m] smallest distance from the hole edge to the lug base (washer / nut / mating part)
+t_manuf    = 1e-3     # [m] thinnest plate that can be manufactured
+
 #MoI
 I_p = None
 I = None
@@ -155,6 +160,22 @@ def sig_ty_max(Fu, d, t, kbry):  #Bolt Shear Strength
 def sig_tu_max(Ftu, d, t, ktu):  #Bolt Bending Strength
     return Ftu / (ktu * bearing_area(d, t))
 
+#failure formulas root: the lug is a cantilever of length l from its base, loaded at the hole centre
+def sig_bending_root(f_z, l, w, t):  #In-plane bending at the root from the transverse load
+    M = f_z * l               # bending moment at the root
+    c = w / 2                 # distance from the neutral axis to the outer edge
+    I = t * w**3 / 12         # second moment of area of the root section (bending in the lug plane)
+    return M * c / I
+
+def sig_axial_root(f_y, w, t):  #Axial stress at the root from the axial load
+    return f_y / (w * t)
+
+def tau_shear_root(f_z, w, t):  #Peak transverse shear stress at the root (rectangle: 1.5 x average)
+    return 1.5 * f_z / (w * t)
+
+def sig_von_mises(sigma, tau):  #Equivalent stress from a normal and a shear stress
+    return np.sqrt(sigma**2 + 3 * tau**2)
+
 def mass(t, l, w, d, rho):
     # rectangle from base to hole centre + half-disc round end (radius w/2) - hole
     return ((l * w) + 0.5 * np.pi * (0.5 * w)**2 - np.pi * (0.5 * d)**2) * t * rho
@@ -182,14 +203,27 @@ with np.errstate(divide='ignore', invalid='ignore'):
     #sigsty = sig_ty_max(Fu, D, T, kbry_func(E / D, T / D))             # [w, d, t]
     #sigstu = sig_tu_max(Ftu, D, T, ktu_func(W, D, E))                  # [w, d, t]
 
+    sigbend = sig_bending_root(f_z, l, W, T)                            # [w, 1, t]
+    sigax   = sig_axial_root(f_y, W, T)                                 # [w, 1, t]
+    tauroot = tau_shear_root(f_z, W, T)                                 # [w, 1, t]
+    # Conservative: peak bending (outer edge) and peak shear (centre) are combined as if at the same point
+    sigroot = sig_von_mises(sigbend + sigax, tauroot)                   # [w, 1, t]
+
 # --- Feasibility: every stress x SF x FF must stay below yield ---
 # W > D is required: otherwise the net tension area is <= 0 and sigst comes out
 # negative, which would wrongly count as "below yield". (With e = w/2 this also keeps e > d/2.)
-# D/2 < l keeps the hole from cutting into the base (otherwise mass() goes negative).
+# l - D/2 >= gap_min leaves room between the hole and the base (and keeps mass() positive).
+# D >= d_bolt_min and T >= t_manuf are the smallest bolt and the thinnest plate we can use.
+# The root check uses the von Mises stress of bending + axial + shear at the base of the lug.
 
 k = SF * FF
-feasible = ((W > D) & (D / 2 < l) & (W/D == 3)   # hole fits inside the lug: narrower than w, doesn't reach past the base
-            & (k * sigst < sigma_y) & (k * sigsbr < sigma_y) & (k * sigscy < sigma_y))
+feasible = ((W > D)                                                 # hole narrower than the lug
+            & (l - D / 2 >= gap_min)                                    # gap between hole edge and base
+            & (D >= d_bolt_min)                                         # minimum bolt size
+            & (T >= t_manuf)    
+            & (W/D == 3)                                        # minimum manufacturable thickness
+            & (k * sigst < sigma_y) & (k * sigsbr < sigma_y) & (k * sigscy < sigma_y)
+            & (k * sigroot < sigma_y))                                  # root: bending + axial + shear
             # & (k * sigsty < sigma_y) & (k * sigstu < sigma_y))        # excluded
 
 # Heatmap over (w, d): smallest t that passes every check
@@ -217,12 +251,16 @@ stresses_opt = {
     'Maximum tensile stress': sig_t_max(f_y, w_opt, d_opt, t_opt, kt_func(w_opt / d_opt)),
     'Shear out bearing':      sig_br_max(Ftu, d_opt, t_opt, kbru_func(e_opt / d_opt, d_opt / t_opt, t_opt)),
     'Bushing yield':          sig_cy_max(Fbry, d_opt, t_opt),
-    # 'Bolt shear strength':    sig_ty_max(Fu, d_opt, t_opt, kbry_func(e_opt / d_opt, t_opt / d_opt)),
-    # 'Bolt bending strength':  sig_tu_max(Ftu, d_opt, t_opt, ktu_func(w_opt, d_opt, e_opt)),
+    'Bolt shear strength':    sig_ty_max(Fu, d_opt, t_opt, kbry_func(e_opt / d_opt, t_opt / d_opt)),
+    'Bolt bending strength':  sig_tu_max(Ftu, d_opt, t_opt, ktu_func(w_opt, d_opt, e_opt)),
+    'Root (von Mises)':       sig_von_mises(sig_bending_root(f_z, l, w_opt, t_opt) + sig_axial_root(f_y, w_opt, t_opt),
+                                            tau_shear_root(f_z, w_opt, t_opt)),
 }
 for name, sigma in stresses_opt.items():
     MS = sigma_y / (SF * FF * sigma) - 1
     print(f"  {name:24s} sigma = {sigma/1e6:7.1f} MPa   MS = {MS:6.2f}")
+print(f"  root parts: bending = {sig_bending_root(f_z, l, w_opt, t_opt)/1e6:.1f} MPa, "
+      f"axial = {sig_axial_root(f_y, w_opt, t_opt)/1e6:.1f} MPa, shear = {tau_shear_root(f_z, w_opt, t_opt)/1e6:.1f} MPa")
 
 # Colour scheme: green = small (light, good), amber = middle, red = large (heavy, bad).
 # Grey = no t in the design space works for that (w, d).
