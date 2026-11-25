@@ -283,3 +283,5 @@ ax2.set_title(f'Lug mass (rho = {rho}, l = {l_over_d} d)')
 fig.suptitle(f'SF = {SF}, FF = {FF}   (green = good, red = bad, grey = no design works)')
 plt.tight_layout()
 plt.show()
+
+
