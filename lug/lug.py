@@ -285,3 +285,40 @@ plt.tight_layout()
 plt.show()
 
 
+
+###########################
+#thermal calculations
+##########################
+
+#cases: hot is 1, cold is 2
+
+
+#constants
+alpha_absorb = 0.09
+epsilon_ir = 0.76
+A_i = 0.01
+A_e = 0.06
+J_s = [14000, 0]
+J_a = [740, 0]
+J_ir = [7960, 3]
+sigma = 5.67 * 10 ** (-8)
+power = 0
+T = []
+
+for i in range(2):
+    T.append(
+        (
+            (alpha_absorb * J_s[i] * A_i + alpha_absorb * J_a[i] * A_i + epsilon_ir * J_ir[i] * A_i + power)
+            / (epsilon_ir * sigma * A_e)
+        ) ** (1 / 4)
+    )
+
+print("The temperature is from", T[0] ,"for hot to", T[1] ,"for cold")
+
+#temperature equilibrium / conduction
+T_WP2_hot_bus = 318
+T_WP2_cold_bus = 223
+T_WP2_hot_solarpanel = 571
+T_WP2_cold1_solarpanel = 463
+T_WP2_cold2_eclipse_solarpanel = 75
+
