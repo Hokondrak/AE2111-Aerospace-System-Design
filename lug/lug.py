@@ -6,15 +6,14 @@ from matplotlib.colors import LinearSegmentedColormap
 #Force
 f_y = 4.53 * 2 * 9.81 * 0.5
 f_z = 4.52 * 6 * 9.81 * 0.5
-m_x = None
-
+m_x = 117.85     # [N m] moment about x (normal to the lug plate), per lug 
 Ftu = f_z
 Fbry = f_y
 Fu = f_y
 
 #Geometry
 y = None
-l = 10e-3     # [m] lug base to hole centre -- placeholder, set from the attachment geometry
+l_over_d = 3     # lug base to hole centre: l = 3 * d
 w = None
 d = None
 t = None
@@ -30,7 +29,7 @@ FF = 1.15     # fitting factor (chart notes: additional M.S. of 0.15 for fitting
 #limits (fit / manufacturing) -- placeholders, set to your design's values
 d_bolt_min = 3.2e-3   # [m] smallest hole: clearance hole for an M3 bolt
 gap_min    = 2e-3     # [m] smallest distance from the hole edge to the lug base (washer / nut / mating part)
-t_manuf    = 1e-3     # [m] thinnest plate that can be manufactured
+t_manuf    = 2e-3     # [m] thinnest plate that can be manufactured
 
 #MoI
 I_p = None
@@ -161,8 +160,8 @@ def sig_tu_max(Ftu, d, t, ktu):  #Bolt Bending Strength
     return Ftu / (ktu * bearing_area(d, t))
 
 #failure formulas root: the lug is a cantilever of length l from its base, loaded at the hole centre
-def sig_bending_root(f_z, l, w, t):  #In-plane bending at the root from the transverse load
-    M = f_z * l               # bending moment at the root
+def sig_bending_root(f_z, m_x, l, w, t):  #In-plane bending at the root from the transverse load and M_x
+    M = f_z * l + abs(m_x)    # bending moment at the root: f_z on its lever arm + applied moment (worst case: same sign)
     c = w / 2                 # distance from the neutral axis to the outer edge
     I = t * w**3 / 12         # second moment of area of the root section (bending in the lug plane)
     return M * c / I
@@ -187,14 +186,15 @@ def mass(t, l, w, d, rho):
 # All in metres. Loads are ~50-150 N, so stress-limited sizes are in the mm range.
 t_list = np.arange(0.05e-3, 3e-3, 0.05e-3)   # thickness       0.05 - 3 mm, step 0.05 mm
 l_list = np.arange(1e-3, 50e-3, 1e-3)        # length          1 - 50 mm,  step 1 mm (mass only)
-w_list = np.arange(1e-3, 30e-3, 0.5e-3)      # width           1 - 30 mm,  step 0.5 mm
+w_list = np.arange(1e-3, 60e-3, 0.5e-3)      # width           1 - 60 mm,  step 0.5 mm
 d_list = np.arange(1e-3, 30e-3, 0.5e-3)      # hole diameter   1 - 30 mm,  step 0.5 mm
 
-# Grid over (w, d, t) -- l only enters mass(), not the hole stresses.
+# Grid over (w, d, t). l is not a separate variable: it follows from d.
 # sparse=True keeps each axis as a thin array; stresses broadcast only over the
 # axes they depend on, so memory stays small. Indexing is [i_w, i_d, i_t].
 W, D, T = np.meshgrid(w_list, d_list, t_list, indexing='ij', sparse=True)
-E = W / 2   # round-ended lug: outer radius e is fixed at half the width
+E = W / 2          # round-ended lug: outer radius e is fixed at half the width
+L = l_over_d * D   # base to hole centre is fixed at l_over_d hole diameters
 
 with np.errstate(divide='ignore', invalid='ignore'):
     sigst  = sig_t_max(f_y, W, D, T, kt_func(W / D))                    # [w, d, t]
@@ -203,25 +203,25 @@ with np.errstate(divide='ignore', invalid='ignore'):
     #sigsty = sig_ty_max(Fu, D, T, kbry_func(E / D, T / D))             # [w, d, t]
     #sigstu = sig_tu_max(Ftu, D, T, ktu_func(W, D, E))                  # [w, d, t]
 
-    sigbend = sig_bending_root(f_z, l, W, T)                            # [w, 1, t]
+    sigbend = sig_bending_root(f_z, m_x, L, W, T)                       # [w, d, t]
     sigax   = sig_axial_root(f_y, W, T)                                 # [w, 1, t]
     tauroot = tau_shear_root(f_z, W, T)                                 # [w, 1, t]
     # Conservative: peak bending (outer edge) and peak shear (centre) are combined as if at the same point
-    sigroot = sig_von_mises(sigbend + sigax, tauroot)                   # [w, 1, t]
+    sigroot = sig_von_mises(sigbend + sigax, tauroot)                   # [w, d, t]
 
 # --- Feasibility: every stress x SF x FF must stay below yield ---
 # W > D is required: otherwise the net tension area is <= 0 and sigst comes out
 # negative, which would wrongly count as "below yield". (With e = w/2 this also keeps e > d/2.)
-# l - D/2 >= gap_min leaves room between the hole and the base (and keeps mass() positive).
+# L - D/2 >= gap_min leaves room between the hole and the base (and keeps mass() positive).
 # D >= d_bolt_min and T >= t_manuf are the smallest bolt and the thinnest plate we can use.
 # The root check uses the von Mises stress of bending + axial + shear at the base of the lug.
 
 k = SF * FF
 feasible = ((W > D)                                                 # hole narrower than the lug
-            & (l - D / 2 >= gap_min)                                    # gap between hole edge and base
+            & (L - D / 2 >= gap_min)                                    # gap between hole edge and base
             & (D >= d_bolt_min)                                         # minimum bolt size
-            & (T >= t_manuf)    
-            & (W/D == 3)                                        # minimum manufacturable thickness
+            & (T >= t_manuf)                                            # minimum manufacturable thickness
+            & np.isclose(W / D, 3)                                      # fixed width-to-hole ratio
             & (k * sigst < sigma_y) & (k * sigsbr < sigma_y) & (k * sigscy < sigma_y)
             & (k * sigroot < sigma_y))                                  # root: bending + axial + shear
             # & (k * sigsty < sigma_y) & (k * sigstu < sigma_y))        # excluded
@@ -235,15 +235,19 @@ for i_w in range(len(w_list)):
             t_min[i_w, i_d] = t_list[i_t[0]]
 
 # Mass of that thinnest lug for each (w, d). Thicker is always heavier, so t_min gives the lightest lug.
-mass_min = mass(t_min, l, w_list[:, None], d_list[None, :], rho)    # [w, d]
+mass_min = mass(t_min, l_over_d * d_list[None, :], w_list[:, None], d_list[None, :], rho)    # [w, d]
 
 # --- Optimum: lightest lug over the whole design space ---
+if np.all(np.isnan(mass_min)):
+    raise SystemExit("No design passes all checks: widen the design space (t_list, w_list, d_list) "
+                     "or relax a limit / check the loads.")
 i_w_opt, i_d_opt = np.unravel_index(np.nanargmin(mass_min), mass_min.shape)
 w_opt = w_list[i_w_opt]
 d_opt = d_list[i_d_opt]
 t_opt = t_min[i_w_opt, i_d_opt]
 e_opt = w_opt / 2
-print(f"Optimum: w = {w_opt*1e3:.2f} mm, d = {d_opt*1e3:.2f} mm, t = {t_opt*1e3:.2f} mm, "
+l_opt = l_over_d * d_opt
+print(f"Optimum: w = {w_opt*1e3:.2f} mm, d = {d_opt*1e3:.2f} mm, t = {t_opt*1e3:.2f} mm, l = {l_opt*1e3:.2f} mm, "
       f"e = {e_opt*1e3:.2f} mm, mass = {mass_min[i_w_opt, i_d_opt]*1e3:.3f} g")
 
 # Margin of safety per check at the optimum: MS = sigma_y / (SF * FF * sigma) - 1  (>= 0 is OK)
@@ -253,13 +257,13 @@ stresses_opt = {
     'Bushing yield':          sig_cy_max(Fbry, d_opt, t_opt),
     'Bolt shear strength':    sig_ty_max(Fu, d_opt, t_opt, kbry_func(e_opt / d_opt, t_opt / d_opt)),
     'Bolt bending strength':  sig_tu_max(Ftu, d_opt, t_opt, ktu_func(w_opt, d_opt, e_opt)),
-    'Root (von Mises)':       sig_von_mises(sig_bending_root(f_z, l, w_opt, t_opt) + sig_axial_root(f_y, w_opt, t_opt),
+    'Root (von Mises)':       sig_von_mises(sig_bending_root(f_z, m_x, l_opt, w_opt, t_opt) + sig_axial_root(f_y, w_opt, t_opt),
                                             tau_shear_root(f_z, w_opt, t_opt)),
 }
 for name, sigma in stresses_opt.items():
     MS = sigma_y / (SF * FF * sigma) - 1
     print(f"  {name:24s} sigma = {sigma/1e6:7.1f} MPa   MS = {MS:6.2f}")
-print(f"  root parts: bending = {sig_bending_root(f_z, l, w_opt, t_opt)/1e6:.1f} MPa, "
+print(f"  root parts: bending = {sig_bending_root(f_z, m_x, l_opt, w_opt, t_opt)/1e6:.1f} MPa, "
       f"axial = {sig_axial_root(f_y, w_opt, t_opt)/1e6:.1f} MPa, shear = {tau_shear_root(f_z, w_opt, t_opt)/1e6:.1f} MPa")
 
 # Colour scheme: green = small (light, good), amber = middle, red = large (heavy, bad).
@@ -276,7 +280,7 @@ for ax, val, label in [(ax1, t_min * 1e3, 'minimum t [mm]'), (ax2, mass_min * 1e
     ax.set_ylabel('w [mm]  (e = w/2)')
     ax.legend(loc='lower right')
 ax1.set_title('Thinnest lug passing all checks')
-ax2.set_title(f'Lug mass (rho = {rho}, l = {l*1e3:.0f} mm)')
+ax2.set_title(f'Lug mass (rho = {rho}, l = {l_over_d} d)')
 fig.suptitle(f'SF = {SF}, FF = {FF}   (green = good, red = bad, grey = no design works)')
 plt.tight_layout()
 plt.show()
