@@ -81,7 +81,6 @@ def interp_family(x, p, curves):
 def kbru_func(e_d, d_t, t):
     """Kbru from e/D and D/t (chart range e/D 0.5-4, D/t 2-30)."""
     k = interp_family(e_d, d_t, KBRU_CURVES)
-    # Note 3: Kbru <= 2.0 for aluminium plate/bar/billet 0.5 in (12.7 mm) or thicker
     return np.where(t >= 12.7e-3, np.minimum(k, 2.0), k)
 
 
@@ -183,7 +182,7 @@ def mass(t, l, w, d, rho):
 
 #design space:
 
-# All in metres. Loads are ~50-150 N, so stress-limited sizes are in the mm range.
+# All in metres. 
 t_list = np.arange(0.05e-3, 3e-3, 0.05e-3)   # thickness       0.05 - 3 mm, step 0.05 mm
 l_list = np.arange(1e-3, 50e-3, 1e-3)        # length          1 - 50 mm,  step 1 mm (mass only)
 w_list = np.arange(1e-3, 60e-3, 0.5e-3)      # width           1 - 60 mm,  step 0.5 mm
